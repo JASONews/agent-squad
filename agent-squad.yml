@@ -1,0 +1,6 @@
+server:
+  host: 127.0.0.1
+  port: 28771
+  db_path: ~/.agent-squad/agent-squad.db
+context_policy:
+  default: message_only

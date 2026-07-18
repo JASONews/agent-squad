@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agent-squad": {
+      "command": "node",
+      "args": ["__AGENT_SQUAD_DIR__/packages/mcp/dist/index.js"],
+      "env": {
+        "AGENT_SQUAD_URL": "http://127.0.0.1:28771"
+      }
+    }
+  }
+}

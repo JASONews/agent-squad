@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"batch-thread-id"}
+{"type":"response.output_item.done","item":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"Need a decision.\n\n%%AGENT_SQUAD_CHOICE%%\n{\"question\":\"Pick layout?\",\"options\":[{\"id\":\"modal\",\"label\":\"Modal\"},{\"id\":\"page\",\"label\":\"Page\"}]}\n%%END_AGENT_SQUAD_CHOICE%%"}]}}
+{"type":"turn.completed","usage":{}}

@@ -1,0 +1,15 @@
+{
+  "name": "@agent-squad/adapters",
+  "version": "0.1.3",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-squad/core": "*",
+    "node-pty": "^1.1.0"
+  }
+}
