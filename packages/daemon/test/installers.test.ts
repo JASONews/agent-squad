@@ -97,6 +97,43 @@ describe('installCli — claude (JSON)', () => {
   });
 });
 
+describe('installCli — Kimi Code (JSON)', () => {
+  it('installs into ~/.kimi-code/mcp.json and preserves existing servers', async () => {
+    mkdirp(join(home, '.kimi-code'));
+    writeFileSync(join(home, '.kimi-code', 'mcp.json'), JSON.stringify({
+      mcpServers: { existing: { command: 'existing-mcp' } },
+      setting: true,
+    }));
+    const r = await installCli('kimi', { homeDir: home, env: {} });
+    expect(r.action).toBe('installed');
+    const content = JSON.parse(readFileSync(join(home, '.kimi-code', 'mcp.json'), 'utf8'));
+    expect(content.mcpServers.existing).toEqual({ command: 'existing-mcp' });
+    expect(content.mcpServers['agent-squad']).toEqual({ command: 'agent-squad-mcp' });
+    expect(content.setting).toBe(true);
+    expect(existsSync(join(home, '.kimi-code', 'mcp.json.bak'))).toBe(true);
+  });
+
+  it('is idempotent', async () => {
+    await installCli('kimi', { homeDir: home, env: {} });
+    expect((await installCli('kimi', { homeDir: home, env: {} })).action).toBe('already-present');
+  });
+
+  it('respects KIMI_CODE_HOME', async () => {
+    const kimiHome = join(home, 'custom-kimi-home');
+    const opts = { homeDir: home, env: { KIMI_CODE_HOME: kimiHome } };
+    const result = await installCli('kimi', opts);
+
+    expect(result.configPath).toBe(join(kimiHome, 'mcp.json'));
+    expect(configPathForCli('kimi', opts)).toBe(join(kimiHome, 'mcp.json'));
+    expect(isMcpConfigured('kimi', opts)).toBe(true);
+  });
+
+  it('treats an empty KIMI_CODE_HOME as unset', () => {
+    expect(configPathForCli('kimi', { homeDir: home, env: { KIMI_CODE_HOME: '' } }))
+      .toBe(join(home, '.kimi-code', 'mcp.json'));
+  });
+});
+
 describe('isMcpConfigured', () => {
   it('returns false before install, true after', async () => {
     expect(isMcpConfigured('codex', { homeDir: home })).toBe(false);
@@ -114,5 +151,6 @@ describe('configPathForCli', () => {
     expect(configPathForCli('opencode', { homeDir: home })).toBe(join(home, '.config', 'opencode', 'opencode.json'));
     expect(configPathForCli('antigravity', { homeDir: home })).toBe(join(home, '.gemini', 'antigravity-cli', 'settings.json'));
     expect(configPathForCli('claude', { homeDir: home })).toBe(join(home, '.claude.json'));
+    expect(configPathForCli('kimi', { homeDir: home, env: {} })).toBe(join(home, '.kimi-code', 'mcp.json'));
   });
 });

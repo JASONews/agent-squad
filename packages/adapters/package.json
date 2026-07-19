@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@agent-squad/core": "*",
+    "@agentclientprotocol/sdk": "^1.2.1",
     "node-pty": "^1.1.0"
   }
 }

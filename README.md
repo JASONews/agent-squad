@@ -4,19 +4,19 @@
 
 **English (default)** | [简体中文](https://github.com/JASONews/agent-squad/blob/main/translations/README.zh-CN.md)
 
-Agent Squad lets a main coding agent such as Claude Code, Codex, opencode, or Antigravity delegate work to other logged-in coding CLIs through a local relay daemon. Each CLI keeps its own authentication, model, tools, permissions, and native conversation context.
+Agent Squad lets a main coding agent such as Claude Code, Codex, opencode, Antigravity, or Kimi Code delegate work to other logged-in coding CLIs through a local relay daemon. Each CLI keeps its own authentication, model, tools, permissions, and native conversation context.
 
 ```text
-Main Agent (Claude Code / Codex / opencode / Antigravity)
+Main Agent (Claude Code / Codex / opencode / Antigravity / Kimi Code)
     -> MCP tools / HTTP API
 agent-squadd (local daemon + SQLite + SSE)
     -> spawn + resume + message relay
-Codex / opencode / Antigravity / Claude Code subagent
+Codex / opencode / Antigravity / Claude Code / Kimi Code subagent
 ```
 
 ## Features
 
-- Multi-CLI subagents: spawn Codex, opencode, Antigravity, or Claude Code as external subagents with multi-turn resume support.
+- Multi-CLI subagents: spawn Codex, opencode, Antigravity, Claude Code, or Kimi Code as external subagents with multi-turn resume support.
 - Choice relay: subagents can ask the main agent/user to choose between implementation directions, then resume with the answer.
 - Live TUI: inspect sessions, subagent status, timelines, pending choices, blocked agents, and live output tails.
 - PTY approval bridge: automatically handles common permission prompts for CLIs that run in a pseudo-terminal.
@@ -32,23 +32,18 @@ Codex / opencode / Antigravity / Claude Code subagent
   - opencode
   - Antigravity
   - Claude Code
+  - Kimi Code
 
 ## Quick Start
 
 ### Install the Published Package
 
-Agent Squad is published through GitHub Packages. GitHub requires authentication
-for npm packages even when the package is public. Create a GitHub classic
-personal access token with the `read:packages` scope, then sign in and install:
+Agent Squad is a public package on the npm registry. No registry token is
+required:
 
 ```bash
-npm login --scope=@jasonews --auth-type=legacy --registry=https://npm.pkg.github.com
-npm install -g @jasonews/agent-squad@latest
+npm install -g @jasonews/agent-squad
 ```
-
-At the login prompts, use your GitHub username, the token as the password, and
-an email address associated with your GitHub account. Do not commit the token or
-the generated npm credentials.
 
 Then verify the installed commands:
 
@@ -110,6 +105,7 @@ agent-squad install codex
 agent-squad install opencode
 agent-squad install antigravity
 agent-squad install claude
+agent-squad install kimi
 ```
 
 Each installer backs up the original config and is idempotent.
@@ -138,7 +134,7 @@ bash skills/install.sh all
 |---|---|
 | `start_session` | Create a collaboration session |
 | `list_subagent_types` | List available subagent types and capabilities |
-| `spawn_subagent` | Start a subagent (`codex`, `opencode`, `antigravity`, or `claude`) |
+| `spawn_subagent` | Start a subagent (`codex`, `opencode`, `antigravity`, `claude`, or `kimi`) |
 | `send_to_subagent` | Send a message to a subagent |
 | `wait_subagent` | Wait for a running subagent result without sending a new message |
 | `request_choice` / `resolve_choice` | Ask for and resolve user decisions |
@@ -179,7 +175,7 @@ Keys: `Up`/`Down` to navigate, `Enter` to open, `c` for choices, `b` for blocked
 
 ```text
 Main Agent (MCP tools)
-  Claude Code / Codex / opencode / Antigravity
+  Claude Code / Codex / opencode / Antigravity / Kimi Code
         |
         | stdio MCP / HTTP API
         v
@@ -188,13 +184,14 @@ agent-squadd
   EventBus
   SSE
   HTTP API
-  AdapterRegistry: codex / opencode / antigravity / claude
+  AdapterRegistry: codex / opencode / antigravity / claude / kimi
   PTY approval bridge
         |
         +-- codex exec
         +-- opencode run
         +-- agy --print
         +-- claude -p
+        +-- kimi acp
 ```
 
 ## Packages
@@ -219,6 +216,8 @@ agent-squadd
 | Claude Code | `claude_auto` (default) | `--permission-mode bypassPermissions --model default --effort max` |
 | Claude Code | `claude_prompt` | `--permission-mode default` |
 | Claude Code | `claude_plan` | `--permission-mode plan` |
+| Kimi Code | `kimi_auto` (default) | Standard ACP tool permissions allow once; questions and plan reviews are relayed to the main agent |
+| Kimi Code | `kimi_readonly` | Every prompted native operation is rejected because Kimi does not expose a reliable read/write kind |
 
 ## Configuration
 

@@ -7,6 +7,7 @@ const root = resolve(new URL('..', import.meta.url).pathname);
 const outDir = resolve(root, 'dist', 'bin');
 
 const external = [
+  '@agentclientprotocol/sdk',
   '@modelcontextprotocol/server',
   '@modelcontextprotocol/server/*',
   'better-sqlite3',

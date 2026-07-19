@@ -15,38 +15,51 @@ const CLIS: { name: string; binary: string; installable: InstallableCli }[] = [
   { name: 'opencode', binary: 'opencode', installable: 'opencode' },
   { name: 'antigravity (agy)', binary: 'agy', installable: 'antigravity' },
   { name: 'claude-code', binary: 'claude', installable: 'claude' },
+  { name: 'kimi-code', binary: 'kimi', installable: 'kimi' },
 ];
 
-function detectVersion(binary: string): Promise<{ available: boolean; version: string | null; path: string | null }> {
+const DETECT_TIMEOUT_MS = 2_000;
+
+function detectVersion(binary: string, env: NodeJS.ProcessEnv): Promise<{ available: boolean; version: string | null; path: string | null }> {
   return new Promise((resolve) => {
-    const child = spawn(binary, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+    const child = spawn(binary, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
+    let settled = false;
+    const finish = (result: { available: boolean; version: string | null; path: string | null }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      finish({ available: false, version: null, path: null });
+    }, DETECT_TIMEOUT_MS);
     child.stdout.on('data', (d) => { out += d.toString(); });
-    child.on('error', () => resolve({ available: false, version: null, path: null }));
+    child.stderr.on('data', (d) => { out += d.toString(); });
+    child.on('error', () => finish({ available: false, version: null, path: null }));
     child.on('close', (code) => {
-      resolve({
+      finish({
         available: code === 0,
         version: out.trim() || null,
-        path: binary,
+        path: code === 0 ? binary : null,
       });
     });
   });
 }
 
-export async function discoverAll(opts?: { homeDir?: string }): Promise<DiscoverResult[]> {
-  const results: DiscoverResult[] = [];
-  for (const cli of CLIS) {
-    const det = await detectVersion(cli.binary);
-    results.push({
+export async function discoverAll(opts?: { homeDir?: string; env?: NodeJS.ProcessEnv }): Promise<DiscoverResult[]> {
+  return Promise.all(CLIS.map(async (cli): Promise<DiscoverResult> => {
+    const det = await detectVersion(cli.binary, opts?.env ?? process.env);
+    return {
       cli: cli.name,
       available: det.available,
       version: det.version,
       path: det.path,
       mcpConfigured: isMcpConfigured(cli.installable, opts),
       configPath: configPathForCli(cli.installable, opts),
-    });
-  }
-  return results;
+    };
+  }));
 }
 
 export function formatDiscoverTable(results: DiscoverResult[]): string {

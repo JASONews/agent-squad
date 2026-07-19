@@ -1,6 +1,6 @@
 ---
 name: agent-squad
-description: Use when coordinating with agent-squad — either as the main agent spawning helper subagents (codex/opencode/antigravity/claude), or as a subagent that needs to request user decisions. Trigger when agent-squad MCP tools are available and the task could benefit from delegation, OR when your prompt contains "[agent-squad]" prefix indicating you are a subagent.
+description: Use when coordinating with agent-squad — either as the main agent spawning helper subagents (codex/opencode/antigravity/claude/kimi), or as a subagent that needs to request user decisions. Trigger when agent-squad MCP tools are available and the task could benefit from delegation, OR when your prompt contains "[agent-squad]" prefix indicating you are a subagent.
 ---
 
 # Agent Squad — Coordination Guide
@@ -31,8 +31,8 @@ list_subagent_types()
 |---|---|---|
 | Code review / bug finding | codex | antigravity (not suited for review) |
 | UI / product design | antigravity | codex (not ideal for UI) |
-| Implementation / testing | opencode, codex, or claude | antigravity (higher latency) |
-| General fallback | opencode or claude | — |
+| Implementation / testing | opencode, codex, claude, or kimi | antigravity (higher latency) |
+| General fallback | opencode, claude, or kimi | — |
 
 **Don't spawn** when the task is simple enough to do yourself in 30 seconds.
 **Don't spawn yourself** — use your own internal subagent mechanism for that.
@@ -55,6 +55,7 @@ Typical mappings:
 | `opencode` | Passed as `--model` | Passed as `--variant` |
 | `antigravity` | Passed as `--model` | No separate flag; choose the full `agy models` name, e.g. `Gemini 3.5 Flash (High)` |
 | `claude` | Passed as `--model`; default `default` (Claude Code resolves this to Opus by default) | Passed as `--effort`; default `max` |
+| `kimi` | Applied through the Kimi Code ACP model config option; omit it to use Kimi's default | Kimi currently advertises `on`/`off`; familiar non-off levels such as `high` map to `on` |
 
 ### Workflow
 
@@ -72,7 +73,7 @@ Typical mappings:
 6. Follow-ups: send_to_subagent({ ..., message: "User chose X. Continue." }) — this resumes
 ```
 
-`spawn_subagent` registers the subagent and stores its assignment, but it does not start the native Codex/OpenCode/Antigravity/Claude process. A subagent with status `ready` has not received work yet. Do not call `wait_subagent` immediately after `spawn_subagent`; first call `send_to_subagent`. After `send_to_subagent` returns `running`, use `wait_subagent` to wait for completion, choices, or failure. Do not use manual sleeps as a substitute for `wait_subagent`. On the first native send, agent-squad includes the stored spawn assignment plus the send message, so a short first send such as "Start." is acceptable after a self-contained spawn assignment.
+`spawn_subagent` registers the subagent and stores its assignment, but it does not start the native Codex/OpenCode/Antigravity/Claude/Kimi process. A subagent with status `ready` has not received work yet. Do not call `wait_subagent` immediately after `spawn_subagent`; first call `send_to_subagent`. After `send_to_subagent` returns `running`, use `wait_subagent` to wait for completion, choices, or failure. Do not use manual sleeps as a substitute for `wait_subagent`. On the first native send, agent-squad includes the stored spawn assignment plus the send message, so a short first send such as "Start." is acceptable after a self-contained spawn assignment.
 
 When `cli` is `"claude"`, write the `spawn_subagent.message` and every `send_to_subagent.message` in English. If the user's task is not in English, translate or summarize it into English before sending it to the Claude subagent. Claude subagents are prompted to respond in English.
 

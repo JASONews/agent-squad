@@ -9,7 +9,8 @@
 #   codex        — copies to ~/.codex/skills/
 #   opencode     — copies to ~/.config/opencode/skills/
 #   antigravity  — copies to ~/.gemini/antigravity-cli/builtin/skills/
-#   all          — installs to all four
+#   kimi         — copies to ~/.kimi-code/skills/
+#   all          — installs to all five
 #
 # One skill (agent-squad) covering both roles:
 #   - Main agent: when/how to spawn subagents, handle choice_requested
@@ -49,19 +50,26 @@ install_antigravity() {
   install_to_dir "$HOME/.gemini/antigravity-cli/builtin/skills"
 }
 
+install_kimi() {
+  echo "Installing to Kimi Code..."
+  install_to_dir "${KIMI_CODE_HOME:-$HOME/.kimi-code}/skills"
+}
+
 case "$TARGET" in
   claude-code)  install_claude_code ;;
   codex)        install_codex ;;
   opencode)     install_opencode ;;
   antigravity)  install_antigravity ;;
+  kimi)         install_kimi ;;
   all)
     install_claude_code
     install_codex
     install_opencode
     install_antigravity
+    install_kimi
     ;;
   *)
-    echo "Usage: bash skills/install.sh [claude-code|codex|opencode|antigravity|all]"
+    echo "Usage: bash skills/install.sh [claude-code|codex|opencode|antigravity|kimi|all]"
     exit 1
     ;;
 esac

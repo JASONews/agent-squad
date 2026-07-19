@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, copyFileSync, mkdirSync } from
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 
-export type InstallableCli = 'codex' | 'opencode' | 'antigravity' | 'claude';
+export type InstallableCli = 'codex' | 'opencode' | 'antigravity' | 'claude' | 'kimi';
 
 export interface InstallResult {
   cli: InstallableCli;
@@ -11,10 +11,15 @@ export interface InstallResult {
   message: string;
 }
 
+interface InstallerOpts {
+  homeDir?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
 const MCP_SERVER_NAME = 'agent-squad';
 const MCP_COMMAND = 'agent-squad-mcp';
 
-function resolveHome(opts?: { homeDir?: string }): string {
+function resolveHome(opts?: InstallerOpts): string {
   return opts?.homeDir ?? homedir();
 }
 
@@ -127,22 +132,50 @@ function installClaude(home: string): InstallResult {
   return { cli: 'claude', action: 'installed', configPath: path, message: 'agent-squad MCP configured for claude-code (main-agent only). Run: agent-squad daemon start' };
 }
 
+// --- Kimi Code (JSON) ---
+
+function configPathKimi(home: string, env: NodeJS.ProcessEnv): string {
+  const configuredHome = env.KIMI_CODE_HOME;
+  const kimiHome = configuredHome?.trim() ? configuredHome : join(home, '.kimi-code');
+  return join(kimiHome, 'mcp.json');
+}
+
+function installKimi(home: string, env: NodeJS.ProcessEnv): InstallResult {
+  const path = configPathKimi(home, env);
+  let config: Record<string, unknown> = {};
+  try { config = JSON.parse(readFileSync(path, 'utf8')); } catch { /* missing or unparseable -> start fresh */ }
+
+  const mcpServers = (config.mcpServers as Record<string, unknown> | undefined) ?? {};
+  if (mcpServers[MCP_SERVER_NAME]) {
+    return { cli: 'kimi', action: 'already-present', configPath: path, message: 'agent-squad MCP entry already present in Kimi Code config' };
+  }
+
+  backupFile(path);
+  mcpServers[MCP_SERVER_NAME] = { command: MCP_COMMAND };
+  config.mcpServers = mcpServers;
+  safeWrite(path, JSON.stringify(config, null, 2) + '\n');
+  return { cli: 'kimi', action: 'installed', configPath: path, message: 'agent-squad MCP configured for Kimi Code. Run: agent-squad daemon start' };
+}
+
 // --- Public API ---
 
-export async function installCli(cli: InstallableCli, opts?: { homeDir?: string }): Promise<InstallResult> {
+export async function installCli(cli: InstallableCli, opts?: InstallerOpts): Promise<InstallResult> {
   const home = resolveHome(opts);
+  const env = opts?.env ?? process.env;
   switch (cli) {
     case 'codex': return installCodex(home);
     case 'opencode': return installOpencode(home);
     case 'antigravity': return installAntigravity(home);
     case 'claude': return installClaude(home);
+    case 'kimi': return installKimi(home, env);
   }
 }
 
 // --- MCP config check (for discover/doctor) ---
 
-export function isMcpConfigured(cli: InstallableCli, opts?: { homeDir?: string }): boolean {
+export function isMcpConfigured(cli: InstallableCli, opts?: InstallerOpts): boolean {
   const home = resolveHome(opts);
+  const env = opts?.env ?? process.env;
   try {
     switch (cli) {
       case 'codex': return hasCodexMcp(readFileSync(configPathCodex(home), 'utf8'));
@@ -158,18 +191,24 @@ export function isMcpConfigured(cli: InstallableCli, opts?: { homeDir?: string }
         const c = JSON.parse(readFileSync(configPathClaude(home), 'utf8'));
         return !!((c.mcpServers as Record<string, unknown> | undefined)?.[MCP_SERVER_NAME]);
       }
+      case 'kimi': {
+        const c = JSON.parse(readFileSync(configPathKimi(home, env), 'utf8'));
+        return !!((c.mcpServers as Record<string, unknown> | undefined)?.[MCP_SERVER_NAME]);
+      }
     }
   } catch {
     return false;
   }
 }
 
-export function configPathForCli(cli: InstallableCli, opts?: { homeDir?: string }): string {
+export function configPathForCli(cli: InstallableCli, opts?: InstallerOpts): string {
   const home = resolveHome(opts);
+  const env = opts?.env ?? process.env;
   switch (cli) {
     case 'codex': return configPathCodex(home);
     case 'opencode': return configPathOpencode(home);
     case 'antigravity': return configPathAntigravity(home);
     case 'claude': return configPathClaude(home);
+    case 'kimi': return configPathKimi(home, env);
   }
 }

@@ -4,19 +4,19 @@
 
 [English (default)](../README.md) | **简体中文**
 
-Agent Squad 让主 agent（Claude Code / Codex / opencode / Antigravity）通过本地 relay daemon 调用其他已经登录的 coding CLI 作为 external subagent，一起完成同一个任务。每个 CLI 保留自己的登录态、模型、工具、权限和原生上下文。
+Agent Squad 让主 agent（Claude Code / Codex / opencode / Antigravity / Kimi Code）通过本地 relay daemon 调用其他已经登录的 coding CLI 作为 external subagent，一起完成同一个任务。每个 CLI 保留自己的登录态、模型、工具、权限和原生上下文。
 
 ```text
-Main Agent (Claude Code / Codex / opencode / Antigravity)
+Main Agent (Claude Code / Codex / opencode / Antigravity / Kimi Code)
     -> MCP tools / HTTP API
 agent-squadd (local daemon + SQLite + SSE)
     -> spawn + resume + message relay
-Codex / opencode / Antigravity / Claude Code subagent
+Codex / opencode / Antigravity / Claude Code / Kimi Code subagent
 ```
 
 ## 功能
 
-- 多 CLI 子代理：spawn Codex、opencode、Antigravity、Claude Code 作为 external subagent，并支持多轮 resume。
+- 多 CLI 子代理：spawn Codex、opencode、Antigravity、Claude Code、Kimi Code 作为 external subagent，并支持多轮 resume。
 - Choice Relay：子代理需要用户做方向选择时，可以把选项交给主 agent，再带着选择继续执行。
 - 实时 TUI：查看会话、子代理状态、消息时间线、pending choices、blocked 子代理和 live output tail。
 - PTY Approval Bridge：对子代理 CLI 的常见 permission prompt 自动确认。
@@ -32,22 +32,17 @@ Codex / opencode / Antigravity / Claude Code subagent
   - opencode
   - Antigravity
   - Claude Code
+  - Kimi Code
 
 ## 快速开始
 
 ### 安装已发布的 Package
 
-Agent Squad 通过 GitHub Packages 发布。即使 package 已公开，GitHub 的 npm
-registry 仍要求认证。请创建仅带 `read:packages` 权限的 GitHub classic
-personal access token，然后登录并安装：
+Agent Squad 已作为公开 package 发布到 npm registry，无需配置 registry token：
 
 ```bash
-npm login --scope=@jasonews --auth-type=legacy --registry=https://npm.pkg.github.com
-npm install -g @jasonews/agent-squad@latest
+npm install -g @jasonews/agent-squad
 ```
-
-登录时，用户名填写 GitHub 用户名，密码填写 token，邮箱填写 GitHub 账号关联的
-邮箱。不要把 token 或生成的 npm 认证配置提交到仓库。
 
 验证安装后的命令：
 
@@ -109,6 +104,7 @@ agent-squad install codex
 agent-squad install opencode
 agent-squad install antigravity
 agent-squad install claude
+agent-squad install kimi
 ```
 
 每个 installer 都会备份原配置，并且重复运行不会重复写入。
@@ -137,7 +133,7 @@ bash skills/install.sh all
 |---|---|
 | `start_session` | 创建一个协作会话 |
 | `list_subagent_types` | 查看可用子代理类型和能力 |
-| `spawn_subagent` | 启动一个子代理（`codex`、`opencode`、`antigravity`、`claude`） |
+| `spawn_subagent` | 启动一个子代理（`codex`、`opencode`、`antigravity`、`claude`、`kimi`） |
 | `send_to_subagent` | 向子代理发送消息 |
 | `wait_subagent` | 等待正在运行的子代理结果，不发送新消息 |
 | `request_choice` / `resolve_choice` | 请求和返回用户选择 |
@@ -178,7 +174,7 @@ agent-squad tui
 
 ```text
 Main Agent (MCP tools)
-  Claude Code / Codex / opencode / Antigravity
+  Claude Code / Codex / opencode / Antigravity / Kimi Code
         |
         | stdio MCP / HTTP API
         v
@@ -187,13 +183,14 @@ agent-squadd
   EventBus
   SSE
   HTTP API
-  AdapterRegistry: codex / opencode / antigravity / claude
+  AdapterRegistry: codex / opencode / antigravity / claude / kimi
   PTY approval bridge
         |
         +-- codex exec
         +-- opencode run
         +-- agy --print
         +-- claude -p
+        +-- kimi acp
 ```
 
 ## 包结构
@@ -218,6 +215,8 @@ agent-squadd
 | Claude Code | `claude_auto`（默认） | `--permission-mode bypassPermissions --model default --effort max` |
 | Claude Code | `claude_prompt` | `--permission-mode default` |
 | Claude Code | `claude_plan` | `--permission-mode plan` |
+| Kimi Code | `kimi_auto`（默认） | 标准 ACP 工具权限自动选择 allow once；选择题和 plan review 会转发给主 agent |
+| Kimi Code | `kimi_readonly` | 拒绝所有需要确认的原生操作，因为 Kimi 不提供可靠的读写类型标识 |
 
 ## 配置
 

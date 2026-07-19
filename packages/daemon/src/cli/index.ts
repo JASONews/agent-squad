@@ -37,8 +37,8 @@ program.command('discover').description('Detect installed coding CLIs and their 
   console.error(formatDiscoverTable(results));
 });
 
-program.command('install').description('Install agent-squad MCP config into a coding CLI').argument('<cli>', 'codex | opencode | antigravity | claude').action(async (cli: string) => {
-  const validClis: InstallableCli[] = ['codex', 'opencode', 'antigravity', 'claude'];
+program.command('install').description('Install agent-squad MCP config into a coding CLI').argument('<cli>', 'codex | opencode | antigravity | claude | kimi').action(async (cli: string) => {
+  const validClis: InstallableCli[] = ['codex', 'opencode', 'antigravity', 'claude', 'kimi'];
   if (!validClis.includes(cli as InstallableCli)) {
     console.error(`unknown cli: ${cli}. Valid: ${validClis.join(', ')}`);
     process.exit(1);

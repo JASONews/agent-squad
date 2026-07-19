@@ -1,5 +1,5 @@
 import { openDb, loadConfig, AdapterRegistry, MockAdapter, createChoices, ChoicesWaiter, EventBus, type ResolvedConfig } from '@agent-squad/core';
-import { CodexAdapter, OpencodeAdapter, AntigravityAdapter, ClaudeAdapter } from '@agent-squad/adapters';
+import { CodexAdapter, OpencodeAdapter, AntigravityAdapter, ClaudeAdapter, KimiAdapter } from '@agent-squad/adapters';
 import { buildApp } from './http/server.js';
 
 export interface Daemon {
@@ -45,6 +45,10 @@ async function defaultRegistry(): Promise<AdapterRegistry> {
   const claude = new ClaudeAdapter();
   if ((await claude.detect()).available) {
     r.register('claude', claude);
+  }
+  const kimi = new KimiAdapter();
+  if ((await kimi.detect()).available) {
+    r.register('kimi', kimi);
   }
   return r;
 }

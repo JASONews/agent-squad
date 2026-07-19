@@ -1,4 +1,4 @@
-export type CliType = 'codex' | 'opencode' | 'antigravity' | 'claude';
+export type CliType = 'codex' | 'opencode' | 'antigravity' | 'claude' | 'kimi';
 
 export type SubagentStatus =
   | 'starting' | 'ready' | 'running'
