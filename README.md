@@ -194,15 +194,20 @@ agent-squadd
         +-- kimi acp
 ```
 
-## Packages
+## npm Distribution and Repository Workspaces
 
-| Package | Commands | Purpose |
+The public npm distribution is a single package: `@jasonews/agent-squad`. It
+provides the `agent-squad`, `agent-squadd`, and `agent-squad-mcp` commands. The
+`@agent-squad/*` packages below are internal monorepo workspaces and are not
+published separately.
+
+| Internal workspace | Command in `@jasonews/agent-squad` | Purpose |
 |---|---|---|
 | `@agent-squad/core` | none | SQLite storage, services, EventBus, and adapter interfaces |
 | `@agent-squad/adapters` | none | CLI adapters and process runners |
-| `@agent-squad/daemon` | `agent-squad`, `agent-squadd` | HTTP API, SSE, CLI, daemon lifecycle, and TUI entrypoint |
+| `@agent-squad/daemon` | `agent-squad`, `agent-squadd` | HTTP API, SSE, CLI, and daemon lifecycle |
 | `@agent-squad/mcp` | `agent-squad-mcp` | stdio MCP shim for main agents |
-| `@agent-squad/tui` | none | Ink/React terminal UI |
+| `@agent-squad/tui` | `agent-squad tui` | Ink/React terminal UI |
 
 ## Permission Profiles
 

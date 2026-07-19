@@ -193,15 +193,19 @@ agent-squadd
         +-- kimi acp
 ```
 
-## 包结构
+## npm 发布包与仓库 Workspaces
 
-| 包 | 命令 | 用途 |
+npm 对外只发布一个 package：`@jasonews/agent-squad`，提供 `agent-squad`、
+`agent-squadd` 和 `agent-squad-mcp` 三个命令。下列 `@agent-squad/*` package
+是 monorepo 内部 workspaces，不会单独发布。
+
+| 内部 workspace | `@jasonews/agent-squad` 提供的命令 | 用途 |
 |---|---|---|
 | `@agent-squad/core` | 无 | SQLite 存储、服务层、EventBus、adapter 接口 |
 | `@agent-squad/adapters` | 无 | CLI adapters 和 process runners |
-| `@agent-squad/daemon` | `agent-squad`、`agent-squadd` | HTTP API、SSE、CLI、daemon lifecycle、TUI 入口 |
+| `@agent-squad/daemon` | `agent-squad`、`agent-squadd` | HTTP API、SSE、CLI、daemon lifecycle |
 | `@agent-squad/mcp` | `agent-squad-mcp` | 主 agent 使用的 stdio MCP shim |
-| `@agent-squad/tui` | 无 | Ink/React 终端 UI |
+| `@agent-squad/tui` | `agent-squad tui` | Ink/React 终端 UI |
 
 ## 权限配置
 
