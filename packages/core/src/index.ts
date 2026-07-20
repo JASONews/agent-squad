@@ -17,3 +17,4 @@ export * from './services/choices-waiter.js';
 export * from './services/choices.js';
 export * from './validation/schemas.js';
 export * from './choice-parser.js';
+export * from './version.js';

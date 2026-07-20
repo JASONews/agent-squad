@@ -11,6 +11,7 @@ import type {
   SpawnInput,
   SubagentHandle,
 } from '@agent-squad/core';
+import { AGENT_SQUAD_VERSION } from '@agent-squad/core';
 import {
   PROTOCOL_VERSION,
   client,
@@ -187,7 +188,7 @@ export class KimiAdapter implements CliAdapter {
         await context.request(methods.agent.initialize, {
           protocolVersion: PROTOCOL_VERSION,
           clientCapabilities: { session: { configOptions: {} } },
-          clientInfo: { name: 'agent-squad', version: '0.1.0' },
+          clientInfo: { name: 'agent-squad', version: AGENT_SQUAD_VERSION },
         });
 
         let configOptions: SessionConfigOption[] | null | undefined;

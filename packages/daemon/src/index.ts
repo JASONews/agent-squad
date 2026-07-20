@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { daemonStart } from './cli/daemon.js';
+import { AGENT_SQUAD_VERSION } from '@agent-squad/core';
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log('Usage: agent-squadd [options]');
@@ -13,7 +14,7 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 }
 
 if (process.argv.includes('--version') || process.argv.includes('-V')) {
-  console.log('0.1.3');
+  console.log(AGENT_SQUAD_VERSION);
   process.exit(0);
 }
 

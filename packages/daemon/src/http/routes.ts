@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db, AdapterRegistry, ChoicesService, EventBus, AgentSquadEvent } from '@agent-squad/core';
 import {
+  AGENT_SQUAD_VERSION,
   startSession, spawnSubagent, sendToSubagent, waitForSubagent, getMessages,
   postArtifact, getArtifact, listSubagentTypes,
   StartSessionSchema, SpawnSubagentSchema, SendToSubagentBodySchema, WaitSubagentBodySchema, PostArtifactSchema,
@@ -19,7 +20,7 @@ function healthCheckDb(db: Db): boolean {
 export function registerRoutes(app: FastifyInstance, deps: { db: Db; registry: AdapterRegistry; choices: ChoicesService; bus: EventBus }): void {
   const { db, registry, choices, bus } = deps;
 
-  app.get('/v1/health', async () => ({ ok: true, version: '0.1.3', db_ok: healthCheckDb(db) }));
+  app.get('/v1/health', async () => ({ ok: true, version: AGENT_SQUAD_VERSION, db_ok: healthCheckDb(db) }));
 
   app.get('/v1/sessions', async (_req, reply) => {
     try {

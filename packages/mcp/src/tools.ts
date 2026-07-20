@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import type { StandardSchemaWithJSON } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { AGENT_SQUAD_VERSION } from '@agent-squad/core';
 import * as z from 'zod/v4';
 import { httpGet, httpPost } from './client.js';
 
@@ -31,7 +32,7 @@ function ok(result: unknown) {
 }
 
 export function buildServer(): McpServer {
-  const server = new McpServer({ name: 'agent-squad', version: '0.1.3' });
+  const server = new McpServer({ name: 'agent-squad', version: AGENT_SQUAD_VERSION });
 
   const startSessionSchema = z.object({
     cwd: z.string(),

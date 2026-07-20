@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
+import { AGENT_SQUAD_VERSION } from '@agent-squad/core';
 import { daemonStart, daemonStop, daemonStatus } from './daemon.js';
 import { doctor } from './doctor.js';
 import { discoverAll, formatDiscoverTable } from './discover.js';
@@ -9,7 +10,7 @@ const program = new Command();
 program
   .name('agent-squad')
   .description('Local external subagent runtime')
-  .version('0.1.3');
+  .version(AGENT_SQUAD_VERSION);
 
 program
   .command('daemon')
