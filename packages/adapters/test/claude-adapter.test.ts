@@ -112,6 +112,7 @@ describe('ClaudeAdapter.send via FakeClaude', () => {
     expect(args).toContain('-p');
     expect(args).toContain('--output-format');
     expect(args).toContain('stream-json');
+    expect(args).toContain('--verbose');
     expect(args).toContain('--model');
     expect(args).toContain('sonnet');
     expect(args).toContain('--effort');
@@ -145,6 +146,7 @@ describe('ClaudeAdapter.send via FakeClaude', () => {
     const args = JSON.parse(readFileSync(argsFile, 'utf8').trim()) as string[];
     expect(args).toContain('--resume');
     expect(args).toContain('fake-claude-session');
+    expect(args).toContain('--verbose');
     const prompt = args.at(-1);
     expect(prompt).toMatch(/^Agent Squad continuation message:/);
     expect(prompt).toContain('Use English for all communication with Claude Code.');

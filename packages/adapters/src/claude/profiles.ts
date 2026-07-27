@@ -39,6 +39,7 @@ function selectedModelArgs(options: ClaudeRunOptions): string[] {
 function baseArgs(profile: ResolvedProfile, options: ClaudeRunOptions): string[] {
   return [
     '-p',
+    '--verbose',
     '--output-format', 'stream-json',
     '--input-format', 'text',
     '--permission-mode', profile.permissionMode,
