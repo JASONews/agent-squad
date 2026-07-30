@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { openDb } from '../src/db/client.js';
+import Database from 'better-sqlite3';
+import { Db, openDb } from '../src/db/client.js';
+import { MIGRATION_V1, MIGRATION_V2, MIGRATION_V3 } from '../src/db/migrations.js';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +21,58 @@ describe('Db', () => {
     const db = openDb({ server: { host: '', port: 0, dbPath: ':memory:' }, contextPolicy: { default: 'message_only' } });
     const columns = db.prepare<[], { name: string }>('PRAGMA table_info(subagents)').all().map((r) => r.name);
     expect(columns).toEqual(expect.arrayContaining(['model', 'reasoning_effort']));
+  });
+
+  it('stores native context telemetry columns', () => {
+    const db = openDb({ server: { host: '', port: 0, dbPath: ':memory:' }, contextPolicy: { default: 'message_only' } });
+    const columns = db.prepare<[], { name: string }>('PRAGMA table_info(subagents)').all().map((r) => r.name);
+    expect(columns).toEqual(expect.arrayContaining([
+      'context_usage_json',
+      'context_compaction_count',
+      'context_last_compaction_json',
+      'context_telemetry_updated_at',
+      'run_started_at',
+      'run_last_output_at',
+      'run_output_event_count',
+    ]));
+    expect(db.raw.pragma('user_version', { simple: true })).toBe(4);
+  });
+
+  it('migrates an existing v2 database to the latest schema', () => {
+    const sqlite = new Database(':memory:');
+    sqlite.exec(MIGRATION_V1);
+    sqlite.exec(MIGRATION_V2);
+    sqlite.pragma('user_version = 2');
+    const db = new Db(sqlite);
+
+    db.migrate();
+
+    const columns = db.prepare<[], { name: string }>('PRAGMA table_info(subagents)').all().map((r) => r.name);
+    expect(columns).toContain('context_usage_json');
+    expect(columns).toContain('context_compaction_count');
+    expect(columns).toContain('run_started_at');
+    expect(db.raw.pragma('user_version', { simple: true })).toBe(4);
+    db.close();
+  });
+
+  it('migrates an existing telemetry schema v3 database to run progress v4', () => {
+    const sqlite = new Database(':memory:');
+    sqlite.exec(MIGRATION_V1);
+    sqlite.exec(MIGRATION_V2);
+    sqlite.exec(MIGRATION_V3);
+    sqlite.pragma('user_version = 3');
+    const db = new Db(sqlite);
+
+    db.migrate();
+
+    const columns = db.prepare<[], { name: string }>('PRAGMA table_info(subagents)').all().map((r) => r.name);
+    expect(columns).toEqual(expect.arrayContaining([
+      'run_started_at',
+      'run_last_output_at',
+      'run_output_event_count',
+    ]));
+    expect(db.raw.pragma('user_version', { simple: true })).toBe(4);
+    db.close();
   });
 
   it('is idempotent (migrate twice)', () => {

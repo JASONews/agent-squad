@@ -13,7 +13,7 @@ export interface Daemon {
 export async function buildDaemon(opts?: { config?: ResolvedConfig; registry?: AdapterRegistry }): Promise<Daemon> {
   const config = opts?.config ?? await loadConfig();
   const db = openDb(config);
-  const registry = opts?.registry ?? await defaultRegistry();
+  const registry = opts?.registry ?? await defaultRegistry(config);
   const bus = new EventBus();
   const choices = createChoices(db, new ChoicesWaiter(), bus);
   const app = buildApp(db, registry, choices, bus);
@@ -25,7 +25,7 @@ export async function buildDaemon(opts?: { config?: ResolvedConfig; registry?: A
   };
 }
 
-async function defaultRegistry(): Promise<AdapterRegistry> {
+async function defaultRegistry(config: ResolvedConfig): Promise<AdapterRegistry> {
   const r = new AdapterRegistry();
   if (process.env.NODE_ENV === 'test' || process.env.AGENT_SQUAD_ENABLE_MOCK === '1') {
     r.register('mock', new MockAdapter());
@@ -42,7 +42,9 @@ async function defaultRegistry(): Promise<AdapterRegistry> {
   if ((await antigravity.detect()).available) {
     r.register('antigravity', antigravity);
   }
-  const claude = new ClaudeAdapter();
+  const claude = new ClaudeAdapter({
+    englishInputPolicy: config.subagents?.claude.englishInput,
+  });
   if ((await claude.detect()).available) {
     r.register('claude', claude);
   }

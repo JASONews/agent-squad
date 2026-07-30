@@ -58,11 +58,12 @@ describe('reduceEvents', () => {
     const s = feed([
       { type: 'session_created', payload: { session_id: 'sess_1', task: 't' } },
       { type: 'subagent_status', payload: { session_id: 'sess_1', subagent_id: 'sub_1', alias: 'rev', cli_type: 'codex', status: 'running' } },
-      { type: 'subagent_output', payload: { session_id: 'sess_1', subagent_id: 'sub_1', alias: 'rev', cli_type: 'codex', stream: 'stdout', text: 'line 2', raw_tail: 'line 1\nline 2' } },
+      { type: 'subagent_output', payload: { session_id: 'sess_1', subagent_id: 'sub_1', alias: 'rev', cli_type: 'codex', stream: 'stdout', text: 'line 2', raw_tail: 'line 1\nline 2', last_seen_at: '2026-07-05T10:05:00.000Z' } },
     ]);
     const sub = s.subagents['sess_1'].find((x) => x.id === 'sub_1');
     expect(sub?.status).toBe('running');
     expect(sub?.rawTail).toBe('line 1\nline 2');
+    expect(sub?.lastOutputAt).toBe('2026-07-05T10:05:00.000Z');
   });
 
   it('choice_created adds pending choice; choice_resolved marks resolved', () => {

@@ -41,6 +41,29 @@ describe('ClaudeAdapter model selection metadata', () => {
   });
 });
 
+describe('ClaudeAdapter.discoverModels', () => {
+  it('reports help aliases as a partial list with global effort choices', async () => {
+    const bin = setupFakeClaudeBin();
+    const a = new ClaudeAdapter({
+      env: { ...process.env, PATH: bin + ':' + (process.env.PATH ?? '') },
+    });
+
+    expect(await a.discoverModels()).toEqual({
+      status: 'partial',
+      source: 'claude --help aliases (partial)',
+      models: [
+        { id: 'default', label: 'Default', isDefault: true },
+        { id: 'opus' },
+        { id: 'sonnet' },
+        { id: 'claude-opus-4-6' },
+      ],
+      defaultModel: 'default',
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultReasoningEffort: 'max',
+    });
+  });
+});
+
 describe('ClaudeAdapter.spawnSubagent', () => {
   it('is lazy and validates profile', async () => {
     const a = new ClaudeAdapter({ env: process.env });
@@ -68,6 +91,69 @@ describe('ClaudeAdapter.spawnSubagent', () => {
       message: 'x',
       permissionProfile: 'bogus',
     })).rejects.toMatchObject({ code: 'permission_profile_unknown' });
+  });
+});
+
+describe('ClaudeAdapter English input policy', () => {
+  it('rejects non-English-primary assignments and follow-ups before invoking Claude', async () => {
+    const argsFile = join(tmp, 'claude-args.json');
+    const a = new ClaudeAdapter({
+      env: { ...process.env, FAKE_CLAUDE_ARGS_FILE: argsFile },
+      binary: join(tmp, 'missing-claude'),
+    });
+    const message = '请检查认证流程，找出根本原因并修复相关测试。';
+
+    await expect(a.spawnSubagent({
+      sessionId: 'sess_1',
+      subagentId: 'sub_1',
+      alias: 'claude',
+      role: 'reviewer',
+      cwd: tmp,
+      message,
+    })).rejects.toMatchObject({ code: 'claude_input_requires_english' });
+    await expect(a.send({
+      subagentId: 'sub_1',
+      message,
+      wait: true,
+    })).rejects.toMatchObject({ code: 'claude_input_requires_english' });
+    expect(existsSync(argsFile)).toBe(false);
+  });
+
+  it('measures prose while ignoring code, URLs, and paths', () => {
+    const a = new ClaudeAdapter({ env: process.env });
+    expect(() => a.validateMessage(
+      'Review the authentication flow and preserve the Chinese label 登录 in the final implementation.',
+    )).not.toThrow();
+    expect(() => a.validateMessage(`请检查认证流程并修复问题。
+
+\`\`\`ts
+const englishIdentifiersShouldNotMakeChineseInstructionsPass = true;
+\`\`\`
+
+/Users/example/repository/packages/core/src/authentication.ts
+`)).toThrowError(/at least 60% English words/);
+  });
+
+  it('can disable enforcement or use a custom minimum ratio', () => {
+    const disabled = new ClaudeAdapter({
+      env: process.env,
+      englishInputPolicy: { enabled: false },
+    });
+    expect(() => disabled.validateMessage('请检查认证流程并修复相关测试。')).not.toThrow();
+
+    const relaxed = new ClaudeAdapter({
+      env: process.env,
+      englishInputPolicy: { minimumRatio: 0.25 },
+    });
+    expect(() => relaxed.validateMessage('Review 认证 流程 and 修复 tests.')).not.toThrow();
+    expect(() => relaxed.validateMessage('Review 认证 流程 并 修复 相关 tests.')).toThrowError(/at least 25% English words/);
+  });
+
+  it('rejects invalid programmatic minimum ratios', () => {
+    expect(() => new ClaudeAdapter({
+      env: process.env,
+      englishInputPolicy: { minimumRatio: 1.1 },
+    })).toThrowError(/between 0 and 1/);
   });
 });
 

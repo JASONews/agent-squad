@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { AGENT_SQUAD_VERSION } from '@agent-squad/core';
 import * as z from 'zod/v4';
 import { httpGet, httpPost } from './client.js';
+import { inferOwnerCli } from './owner-cli.js';
 
 const text = (s: string) => ({ type: 'text' as const, text: s });
 
@@ -33,23 +34,33 @@ function ok(result: unknown) {
 
 export function buildServer(): McpServer {
   const server = new McpServer({ name: 'agent-squad', version: AGENT_SQUAD_VERSION });
+  const segment = (value: string) => encodeURIComponent(value);
 
   const startSessionSchema = z.object({
     cwd: z.string(),
     task: z.string(),
-    owner_cli: z.string().optional(),
+    owner_cli: z.string().min(1).max(64).optional()
+      .describe('Main-agent CLI identifier; inferred from the MCP client handshake when omitted'),
     owner_native_session_id: z.string().optional(),
   });
   server.registerTool(
     'start_session',
     {
-      description: 'Start an agent-squad root session',
+      description: 'Start an agent-squad root session. Pass owner_cli when known; otherwise Agent Squad infers it from the MCP client handshake.',
       inputSchema: schema(startSessionSchema),
     },
     async (args) => {
       try {
         const parsed = startSessionSchema.parse(args);
-        const r = await httpPost<{ session_id: string }>('/v1/sessions', parsed);
+        const ownerCli = inferOwnerCli({
+          explicit: parsed.owner_cli,
+          environment: process.env.AGENT_SQUAD_OWNER_CLI,
+          clientName: server.server.getClientVersion()?.name,
+        });
+        const r = await httpPost<{ session_id: string }>('/v1/sessions', {
+          ...parsed,
+          owner_cli: ownerCli,
+        });
         return ok(r);
       } catch (e) {
         return toolError(e);
@@ -57,15 +68,21 @@ export function buildServer(): McpServer {
     },
   );
 
+  const listSubagentTypesSchema = z.object({
+    cwd: z.string().min(1).optional()
+      .describe('Repository directory used for project-scoped model discovery'),
+  });
   server.registerTool(
     'list_subagent_types',
     {
-      description: 'List available subagent CLI types',
-      inputSchema: schema(z.object({})),
+      description: 'List subagent CLI types, capabilities, and dynamically discovered model/reasoning choices',
+      inputSchema: schema(listSubagentTypesSchema),
     },
-    async () => {
+    async (args) => {
       try {
-        const r = await httpGet<unknown>('/v1/subagent-types');
+        const { cwd } = listSubagentTypesSchema.parse(args);
+        const query = cwd === undefined ? '' : `?cwd=${encodeURIComponent(cwd)}`;
+        const r = await httpGet<unknown>(`/v1/subagent-types${query}`);
         return ok(r);
       } catch (e) {
         return toolError(e);
@@ -133,15 +150,49 @@ export function buildServer(): McpServer {
         const a = sendSchema.parse(args);
         const ref = a.subagent_id ?? a.alias;
         if (!ref) return toolError(new Error('alias or subagent_id required'));
-        const r = await httpPost<{ message_id: string; status: string; reply?: string; artifacts?: unknown[]; raw_tail?: string; choice_requested?: boolean; choice?: unknown; choices?: unknown[] }>(
-          `/v1/sessions/${a.session_id}/subagents/${ref}/messages`,
+        const r = await httpPost<{ message_id: string; status: string; reply?: string; artifacts?: unknown[]; raw_tail?: string; context_telemetry?: unknown; progress?: unknown; choice_requested?: boolean; choice?: unknown; choices?: unknown[] }>(
+          `/v1/sessions/${segment(a.session_id)}/subagents/${segment(ref)}/messages`,
           {
             message: a.message,
             wait: a.wait ?? true,
             alias: a.alias,
+            subagent_id: a.subagent_id,
             soft_timeout_ms: a.soft_timeout_ms,
             hard_timeout_ms: a.hard_timeout_ms,
           },
+        );
+        return ok(r);
+      } catch (e) {
+        return toolError(e);
+      }
+    },
+  );
+
+  const getSubagentStatusSchema = z.object({
+    session_id: z.string(),
+    alias: z.string().optional(),
+    subagent_id: z.string().optional(),
+    after_output_event_count: z.number().int().nonnegative().optional(),
+  });
+  server.registerTool(
+    'get_subagent_status',
+    {
+      description: 'Inspect a subagent immediately without waiting. Returns status, native session, context telemetry, raw tail, and structured progress diagnostics including whether output changed since after_output_event_count.',
+      inputSchema: schema(getSubagentStatusSchema),
+    },
+    async (args) => {
+      try {
+        const a = getSubagentStatusSchema.parse(args);
+        const ref = a.subagent_id ?? a.alias;
+        if (!ref) return toolError(new Error('alias or subagent_id required'));
+        const qs = new URLSearchParams();
+        if (a.after_output_event_count !== undefined) {
+          qs.set('after_output_event_count', String(a.after_output_event_count));
+        }
+        if (a.alias !== undefined) qs.set('alias', a.alias);
+        if (a.subagent_id !== undefined) qs.set('subagent_id', a.subagent_id);
+        const r = await httpGet<unknown>(
+          `/v1/sessions/${segment(a.session_id)}/subagents/${segment(ref)}${qs.size > 0 ? `?${qs}` : ''}`,
         );
         return ok(r);
       } catch (e) {
@@ -155,12 +206,13 @@ export function buildServer(): McpServer {
     alias: z.string().optional(),
     subagent_id: z.string().optional(),
     after_message_id: z.string().optional(),
+    after_output_event_count: z.number().int().nonnegative().optional(),
     timeout_ms: z.number().int().positive().optional(),
   });
   server.registerTool(
     'wait_subagent',
     {
-      description: 'Wait for a running subagent to produce its next result without sending another message. Default timeout is 300s; timeout_ms is capped at 300s. Returns completed, choice_requested, failed, timeout, or running if the wait expires.',
+      description: 'Wait for a running subagent without sending another message. Default timeout is 300s and is capped at 300s, but prolonged silence may return running early with progress.assessment="possibly_stalled". Pass the previous progress.output_events as after_output_event_count to measure new output.',
       inputSchema: schema(waitSubagentSchema),
     },
     async (args) => {
@@ -168,12 +220,13 @@ export function buildServer(): McpServer {
         const a = waitSubagentSchema.parse(args);
         const ref = a.subagent_id ?? a.alias;
         if (!ref) return toolError(new Error('alias or subagent_id required'));
-        const r = await httpPost<{ message_id?: string; status: string; reply?: string; artifacts?: unknown[]; raw_tail?: string; choice_requested?: boolean; choice?: unknown; choices?: unknown[] }>(
-          `/v1/sessions/${a.session_id}/subagents/${ref}/wait`,
+        const r = await httpPost<{ message_id?: string; status: string; reply?: string; artifacts?: unknown[]; raw_tail?: string; context_telemetry?: unknown; progress?: unknown; choice_requested?: boolean; choice?: unknown; choices?: unknown[] }>(
+          `/v1/sessions/${segment(a.session_id)}/subagents/${segment(ref)}/wait`,
           {
             alias: a.alias,
             subagent_id: a.subagent_id,
             after_message_id: a.after_message_id,
+            after_output_event_count: a.after_output_event_count,
             timeout_ms: a.timeout_ms,
           },
         );

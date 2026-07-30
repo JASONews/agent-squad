@@ -69,4 +69,11 @@ export interface Subagent {
   pid: number | null;
   last_seen_at: string;
   context_summary: string | null;
+  context_usage_json: string | null;
+  context_compaction_count: number;
+  context_last_compaction_json: string | null;
+  context_telemetry_updated_at: string | null;
+  run_started_at?: string | null;
+  run_last_output_at?: string | null;
+  run_output_event_count?: number;
 }

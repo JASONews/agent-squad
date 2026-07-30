@@ -30,8 +30,19 @@ export const SendToSubagentBodySchema = z.object({
 export const WaitSubagentBodySchema = z.object({
   timeout_ms: z.number().int().positive().optional(),
   after_message_id: z.string().optional(),
+  after_output_event_count: z.number().int().nonnegative().optional(),
   alias: z.string().optional(),
   subagent_id: z.string().optional(),
+});
+
+export const InspectSubagentQuerySchema = z.object({
+  after_output_event_count: z.coerce.number().int().nonnegative().optional(),
+  alias: z.string().min(1).optional(),
+  subagent_id: z.string().min(1).optional(),
+});
+
+export const ListSubagentTypesQuerySchema = z.object({
+  cwd: z.string().min(1).optional(),
 });
 
 export const PostArtifactSchema = z.object({

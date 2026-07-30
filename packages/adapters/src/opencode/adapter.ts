@@ -1,9 +1,26 @@
 import { spawn } from 'node:child_process';
-import type { CliAdapter, SpawnInput, SubagentHandle, SendInput, SendResult, DetectResult, AdapterCapabilities, ModelSelectionInfo } from '@agent-squad/core';
+import { resolve } from 'node:path';
+import type {
+  AdapterCapabilities,
+  CliAdapter,
+  DetectResult,
+  ModelDiscoveryInput,
+  ModelDiscoveryResult,
+  ModelSelectionInfo,
+  SendInput,
+  SendResult,
+  SpawnInput,
+  SubagentHandle,
+} from '@agent-squad/core';
 import { opencodeParser } from './jsonl.js';
 import { resolveProfile, runArgs } from './profiles.js';
 import { filterEnv } from '../shared/env.js';
 import { runJsonlProcess } from '../shared/jsonl-runner.js';
+import {
+  KeyedModelDiscoveryCache,
+  parseModelLines,
+  runDiscoveryCommand,
+} from '../shared/model-discovery.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
 
@@ -11,11 +28,13 @@ export interface OpencodeAdapterOpts {
   env?: NodeJS.ProcessEnv;
   binary?: string;
   usePty?: boolean;
+  modelDiscoveryTimeoutMs?: number;
 }
 
 export class OpencodeAdapter implements CliAdapter {
   readonly cliType = 'opencode' as const;
   private readonly opts: OpencodeAdapterOpts;
+  private readonly discoveryCache: KeyedModelDiscoveryCache;
   private detectCache: DetectResult | null = null;
   private idleTimeoutMs = 15_000;
   private blockAfterMs = 30_000;
@@ -34,7 +53,23 @@ export class OpencodeAdapter implements CliAdapter {
     },
   };
 
-  constructor(opts: OpencodeAdapterOpts = {}) { this.opts = opts; }
+  constructor(opts: OpencodeAdapterOpts = {}) {
+    this.opts = opts;
+    this.discoveryCache = new KeyedModelDiscoveryCache(
+      'opencode models',
+      async (cwd) => ({
+        status: 'available',
+        source: 'opencode models',
+        models: parseModelLines(await runDiscoveryCommand({
+          binary: this.opts.binary ?? 'opencode',
+          args: ['models'],
+          env: this.opts.env ?? process.env,
+          cwd,
+          timeoutMs: this.opts.modelDiscoveryTimeoutMs,
+        })),
+      }),
+    );
+  }
 
   setBlockTimingsForTest(idle: number, block: number): void { this.idleTimeoutMs = idle; this.blockAfterMs = block; }
 
@@ -55,6 +90,11 @@ export class OpencodeAdapter implements CliAdapter {
 
   capabilities(): AdapterCapabilities {
     return { mcp: false, plugin: false, headless: true, resume: true, persistentServer: false, autoApprove: true, structuredOutput: true };
+  }
+
+  discoverModels(input: ModelDiscoveryInput = {}): Promise<ModelDiscoveryResult> {
+    const cwd = resolve(input.cwd ?? process.cwd());
+    return this.discoveryCache.get(cwd);
   }
 
   async spawnSubagent(input: SpawnInput): Promise<SubagentHandle> {

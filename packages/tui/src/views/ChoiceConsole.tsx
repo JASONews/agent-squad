@@ -2,6 +2,8 @@ import React from 'react';
 import { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { TuiState } from '../store.js';
+import { clampSelection, getPageWindow, selectedIndexById } from '../pagination.js';
+import { useTerminalSize } from '../useTerminalSize.js';
 import { restPost } from '../client.js';
 
 /**
@@ -17,12 +19,25 @@ import { restPost } from '../client.js';
 export function ChoiceConsole({ state, sessionId, baseUrl, onBack }: {
   state: TuiState; sessionId: string; baseUrl: string; onBack: () => void;
 }) {
+  const { columns, rows } = useTerminalSize();
   const choices = state.choices[sessionId]?.filter((c) => c.status === 'pending') ?? [];
-  const [selected, setSelected] = useState(0);
+  const choiceIds = choices.map((choice) => choice.id);
+  const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
+  const selected = selectedIndexById(choiceIds, selectedChoiceId);
+  const bodyRows = Math.max(1, rows - 2);
+  const pageWindow = getPageWindow(choices.length, bodyRows, Math.floor(selected / bodyRows));
+
+  const moveSelection = (delta: number) => {
+    const next = clampSelection(choices.length, selected + delta);
+    setSelectedChoiceId(choiceIds[next] ?? null);
+  };
+
   useInput((input, key) => {
     if (input === 'q') onBack();
-    if (key.upArrow) setSelected((s) => Math.max(0, s - 1));
-    if (key.downArrow) setSelected((s) => Math.min(choices.length - 1, s + 1));
+    if (key.upArrow) moveSelection(-1);
+    if (key.downArrow) moveSelection(1);
+    if (key.pageUp) moveSelection(-bodyRows);
+    if (key.pageDown) moveSelection(bodyRows);
     // digit keys 1-9: select an option for the currently highlighted choice
     const digit = parseInt(input, 10);
     if (digit >= 1 && digit <= 9 && choices[selected]) {
@@ -35,18 +50,20 @@ export function ChoiceConsole({ state, sessionId, baseUrl, onBack }: {
   });
 
   return (
-    <Box flexDirection="column">
-      <Text bold>Choice Console — {sessionId.slice(0, 12)}</Text>
-      {choices.length === 0 && <Text dimColor>No pending choices.</Text>}
-      {choices.map((c, i) => (
-        <Box key={c.id} flexDirection="column">
-          <Text color={i === selected ? 'cyan' : undefined}>
-            {i === selected ? '▶ ' : '  '}{c.question.slice(0, 60)}
-          </Text>
-        </Box>
-      ))}
-      <Text dimColor>Type the option id to resolve · q: back</Text>
-      {choices.length > 0 && <Text dimColor>(Full option/recommendation display requires GET choice detail — added in follow-up)</Text>}
+    <Box flexDirection="column" width={columns} height={rows} overflow="hidden">
+      <Text bold wrap="truncate-end">Choice Console — {sessionId.slice(0, 12)}</Text>
+      <Box flexDirection="column" height={bodyRows} overflow="hidden">
+        {choices.length === 0 && <Text dimColor>No pending choices.</Text>}
+        {choices.slice(pageWindow.start, pageWindow.end).map((c, pageIndex) => {
+          const i = pageWindow.start + pageIndex;
+          return (
+            <Text key={c.id} color={i === selected ? 'cyan' : undefined} wrap="truncate-end">
+              {i === selected ? '▶ ' : '  '}{c.question.slice(0, 60)}
+            </Text>
+          );
+        })}
+      </Box>
+      <Text dimColor wrap="truncate-end">↑↓ navigate · PgUp/PgDn page · Type option id · q: back · {pageWindow.page + 1}/{pageWindow.pageCount}</Text>
     </Box>
   );
 }

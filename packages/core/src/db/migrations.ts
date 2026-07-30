@@ -72,4 +72,17 @@ ALTER TABLE subagents ADD COLUMN model TEXT;
 ALTER TABLE subagents ADD COLUMN reasoning_effort TEXT;
 `;
 
-export const TARGET_VERSION = 2;
+export const MIGRATION_V3 = `
+ALTER TABLE subagents ADD COLUMN context_usage_json TEXT;
+ALTER TABLE subagents ADD COLUMN context_compaction_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE subagents ADD COLUMN context_last_compaction_json TEXT;
+ALTER TABLE subagents ADD COLUMN context_telemetry_updated_at TEXT;
+`;
+
+export const MIGRATION_V4 = `
+ALTER TABLE subagents ADD COLUMN run_started_at TEXT;
+ALTER TABLE subagents ADD COLUMN run_last_output_at TEXT;
+ALTER TABLE subagents ADD COLUMN run_output_event_count INTEGER NOT NULL DEFAULT 0;
+`;
+
+export const TARGET_VERSION = 4;

@@ -2,7 +2,15 @@ import type { AgentSquadEvent } from '@agent-squad/core';
 
 export interface SessionSummary { id: string; task: string; lastActiveAt: string | null; }
 export interface MessageSummary { id: string; kind: string; }
-export interface SubagentSummary { id: string; alias: string; cliType: string; status: string; blocked: boolean; rawTail: string | null; }
+export interface SubagentSummary {
+  id: string;
+  alias: string;
+  cliType: string;
+  status: string;
+  blocked: boolean;
+  rawTail: string | null;
+  lastOutputAt: string | null;
+}
 export interface ChoiceSummary { id: string; question: string; status: string; selected: string | null; }
 export interface ArtifactSummary { id: string; kind: string; }
 
@@ -75,8 +83,9 @@ export function reduceEvents(state: TuiState, event: AgentSquadEvent): TuiState 
         status: event.payload.status as string,
         blocked: event.payload.status === 'native_cli_blocked',
         rawTail: existing?.rawTail ?? null,
+        lastOutputAt: existing?.lastOutputAt ?? null,
       };
-      const newSubs = existing ? subs.map((s) => (s.id === subId ? { ...updated, rawTail: s.rawTail } : s)) : [...subs, updated];
+      const newSubs = existing ? subs.map((s) => (s.id === subId ? updated : s)) : [...subs, updated];
       return touchSession(
         { ...state, subagents: { ...state.subagents, [sid]: newSubs } },
         sid,
@@ -87,7 +96,14 @@ export function reduceEvents(state: TuiState, event: AgentSquadEvent): TuiState 
       const sid = event.payload.session_id as string;
       const subId = event.payload.subagent_id as string;
       const subs = state.subagents[sid] ?? [];
-      const newSubs = subs.map((s) => s.id === subId ? { ...s, blocked: true, status: 'native_cli_blocked', rawTail: event.payload.raw_tail as string } : s);
+      const outputAt = payloadTime(event.payload);
+      const newSubs = subs.map((s) => s.id === subId ? {
+        ...s,
+        blocked: true,
+        status: 'native_cli_blocked',
+        rawTail: event.payload.raw_tail as string,
+        lastOutputAt: outputAt,
+      } : s);
       return touchSession(
         { ...state, subagents: { ...state.subagents, [sid]: newSubs } },
         sid,
@@ -99,6 +115,7 @@ export function reduceEvents(state: TuiState, event: AgentSquadEvent): TuiState 
       const subId = event.payload.subagent_id as string;
       const subs = state.subagents[sid] ?? [];
       const existing = subs.find((s) => s.id === subId);
+      const outputAt = payloadTime(event.payload);
       const updated: SubagentSummary = {
         id: subId,
         alias: existing?.alias ?? event.payload.alias as string,
@@ -106,6 +123,7 @@ export function reduceEvents(state: TuiState, event: AgentSquadEvent): TuiState 
         status: existing?.status ?? 'running',
         blocked: existing?.blocked ?? false,
         rawTail: event.payload.raw_tail as string,
+        lastOutputAt: outputAt,
       };
       const newSubs = existing ? subs.map((s) => (s.id === subId ? updated : s)) : [...subs, updated];
       return touchSession(

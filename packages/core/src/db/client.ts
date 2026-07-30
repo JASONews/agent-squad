@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import type { Database as SqliteDatabase, Statement } from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { MIGRATION_V1, MIGRATION_V2, TARGET_VERSION } from './migrations.js';
+import { MIGRATION_V1, MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, TARGET_VERSION } from './migrations.js';
 import type { ResolvedConfig } from '../config/schema.js';
 
 export class Db {
@@ -15,6 +15,12 @@ export class Db {
     }
     if (current < 2) {
       this.sqlite.exec(MIGRATION_V2);
+    }
+    if (current < 3) {
+      this.sqlite.exec(MIGRATION_V3);
+    }
+    if (current < 4) {
+      this.sqlite.exec(MIGRATION_V4);
     }
     this.sqlite.pragma(`user_version = ${TARGET_VERSION}`);
   }

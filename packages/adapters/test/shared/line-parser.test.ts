@@ -28,11 +28,27 @@ describe('LineAccumulator', () => {
     expect(a.replyText).toBe('');
     expect(a.error).toBeNull();
   });
+  it('keeps the latest usage snapshot and accumulates compaction boundaries', () => {
+    const a = new LineAccumulator();
+    a.add({ type: 'context_usage', usage: { inputTokens: 100, outputTokens: 5 } });
+    a.add({ type: 'context_compaction', compaction: { trigger: 'auto', preTokens: 100 } });
+    a.add({ type: 'context_usage', usage: { inputTokens: 40, cachedInputTokens: 12, outputTokens: 7 } });
+    a.add({ type: 'context_compaction', compaction: { trigger: 'manual', preTokens: 40 } });
+
+    expect(a.contextTelemetry).toEqual({
+      usage: { inputTokens: 40, cachedInputTokens: 12, outputTokens: 7 },
+      compactions: [
+        { trigger: 'auto', preTokens: 100 },
+        { trigger: 'manual', preTokens: 40 },
+      ],
+    });
+  });
   it('initial state', () => {
     const a = new LineAccumulator();
     expect(a.sessionId).toBeNull();
     expect(a.replyText).toBe('');
     expect(a.error).toBeNull();
+    expect(a.contextTelemetry).toBeUndefined();
   });
 });
 

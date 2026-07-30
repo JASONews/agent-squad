@@ -50,6 +50,27 @@ describe('KimiAdapter', () => {
     expect(Date.now() - startedAt).toBeLessThan(1_000);
   });
 
+  it('discovers model and thinking choices from ACP session config options', async () => {
+    const eventsFile = join(tmp, 'discovery-events.jsonl');
+    const adapter = new KimiAdapter({
+      env: fakeEnv({ FAKE_KIMI_EVENTS_FILE: eventsFile }),
+    });
+
+    expect(await adapter.discoverModels({ cwd: tmp })).toEqual({
+      status: 'available',
+      source: 'kimi ACP session configOptions',
+      models: [
+        { id: 'default', label: 'Default', isDefault: true },
+        { id: 'kimi-k2.5', label: 'Kimi K2.5' },
+      ],
+      defaultModel: 'default',
+      reasoningEfforts: ['on', 'off'],
+      defaultReasoningEffort: 'off',
+    });
+    expect(readEvents(eventsFile).find((event) => event.method === 'session/new')?.params)
+      .toMatchObject({ cwd: tmp, mcpServers: [] });
+  });
+
   it('spawns lazily and validates the profile at spawn and send', async () => {
     const adapter = new KimiAdapter({ env: fakeEnv() });
     const handle = await adapter.spawnSubagent({

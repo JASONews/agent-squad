@@ -31,7 +31,10 @@ describe('runPtyProcess', () => {
     let onData: ((data: string) => void) | undefined;
     const outputs: { stream: string; text: string; rawTail: string }[] = [];
     ptyMock.spawn.mockImplementation(() => {
-      queueMicrotask(() => onData?.('{"type":"thread.started","thread_id":"pty-thread"}\n'));
+      queueMicrotask(() => {
+        onData?.('{"type":"thread.started","thread_id":"pty-thread"}\n');
+        onData?.('{"type":"turn.completed","usage":{"input_tokens":1234,"output_tokens":42}}\n');
+      });
       return {
         onData: (cb: (data: string) => void) => { onData = cb; },
         onExit: () => {},
@@ -41,8 +44,18 @@ describe('runPtyProcess', () => {
     });
     const parser: LineParser = {
       parse(line) {
-        const obj = JSON.parse(line) as { type?: string; thread_id?: string };
+        const obj = JSON.parse(line) as {
+          type?: string;
+          thread_id?: string;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
         if (obj.type === 'thread.started' && obj.thread_id) return { type: 'session_id', sessionId: obj.thread_id };
+        if (obj.type === 'turn.completed' && obj.usage) {
+          return {
+            type: 'context_usage',
+            usage: { inputTokens: obj.usage.input_tokens, outputTokens: obj.usage.output_tokens },
+          };
+        }
         return { type: 'unknown', raw: obj };
       },
     };
@@ -61,6 +74,9 @@ describe('runPtyProcess', () => {
 
     expect(result.status).toBe('timeout');
     expect(result.nativeSessionId).toBe('pty-thread');
+    expect(result.contextTelemetry).toEqual({
+      usage: { inputTokens: 1234, outputTokens: 42 },
+    });
     expect(outputs).toContainEqual({
       stream: 'stdout',
       text: '{"type":"thread.started","thread_id":"pty-thread"}',

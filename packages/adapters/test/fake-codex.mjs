@@ -11,6 +11,76 @@ if (process.env.FAKE_CODEX_ARGS_FILE) {
   writeFileSync(process.env.FAKE_CODEX_ARGS_FILE, JSON.stringify(args) + '\n', { flag: 'a' });
 }
 
+if (args[0] === '--version') {
+  process.stdout.write('codex-cli 1.2.3\n');
+  process.exit(0);
+}
+
+if (args[0] === 'app-server') {
+  let buffer = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    buffer += chunk;
+    let newline = buffer.indexOf('\n');
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      newline = buffer.indexOf('\n');
+      if (!line.trim()) continue;
+      const message = JSON.parse(line);
+      if (message.method === 'initialize' && message.id === 1) {
+        process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, result: {} })}\n`);
+      }
+      if (message.method === 'model/list' && message.id === 2) {
+        process.stdout.write(`${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 2,
+          result: {
+            data: [
+              {
+                id: 'gpt-5.6-sol',
+                displayName: 'GPT-5.6-Sol',
+                isDefault: true,
+                defaultReasoningEffort: 'high',
+                supportedReasoningEfforts: [
+                  { reasoningEffort: 'low' },
+                  { reasoningEffort: 'high' },
+                  { reasoningEffort: 'max' },
+                ],
+              },
+            ],
+            nextCursor: 'page-2',
+          },
+        })}\n`);
+      }
+      if (message.method === 'model/list' && message.id === 3 && message.params?.cursor === 'page-2') {
+        process.stdout.write(`${JSON.stringify({
+          jsonrpc: '2.0',
+          id: 3,
+          result: {
+            data: [
+              {
+                id: 'gpt-5.6-terra',
+                displayName: 'GPT-5.6-Terra',
+                defaultReasoningEffort: 'medium',
+                supportedReasoningEfforts: ['medium', 'high'],
+              },
+              {
+                id: 'gpt-hidden',
+                displayName: 'Hidden',
+                hidden: true,
+                supportedReasoningEfforts: [],
+              },
+            ],
+            nextCursor: null,
+          },
+        })}\n`);
+      }
+    }
+  });
+  await new Promise(() => {});
+}
+
 // find --output-last-message <file>
 let outPath = null;
 for (let i = 0; i < args.length; i++) {

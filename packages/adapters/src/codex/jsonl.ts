@@ -1,4 +1,5 @@
 import type { LineEvent, LineParser } from '../shared/line-parser.js';
+import type { ContextUsage } from '@agent-squad/core';
 
 interface CodexItem {
   type?: string;
@@ -6,6 +7,29 @@ interface CodexItem {
   text?: string;
   message?: string;
   content?: unknown;
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function contextUsage(value: unknown): ContextUsage | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const usage = value as Record<string, unknown>;
+  const inputDetails = typeof usage.input_tokens_details === 'object' && usage.input_tokens_details !== null
+    ? usage.input_tokens_details as Record<string, unknown>
+    : {};
+  const outputDetails = typeof usage.output_tokens_details === 'object' && usage.output_tokens_details !== null
+    ? usage.output_tokens_details as Record<string, unknown>
+    : {};
+  const normalized: ContextUsage = {
+    inputTokens: tokenCount(usage.input_tokens),
+    cachedInputTokens: tokenCount(usage.cached_input_tokens) ?? tokenCount(inputDetails.cached_tokens),
+    outputTokens: tokenCount(usage.output_tokens),
+    reasoningOutputTokens: tokenCount(usage.reasoning_output_tokens) ?? tokenCount(outputDetails.reasoning_tokens),
+    totalTokens: tokenCount(usage.total_tokens),
+  };
+  return Object.values(normalized).some((count) => count !== undefined) ? normalized : undefined;
 }
 
 function textFromContent(content: unknown): string | null {
@@ -53,7 +77,7 @@ export function parseJsonlLine(line: string): LineEvent | null {
     return { type: 'unknown', raw: trimmed };
   }
   if (typeof obj !== 'object' || obj === null) return { type: 'unknown', raw: obj };
-  const o = obj as { type?: string; thread_id?: string; item?: CodexItem; response?: unknown };
+  const o = obj as { type?: string; thread_id?: string; item?: CodexItem; response?: unknown; usage?: unknown };
 
   if (o.type === 'thread.started' && typeof o.thread_id === 'string') {
     return { type: 'session_id', sessionId: o.thread_id };
@@ -67,7 +91,16 @@ export function parseJsonlLine(line: string): LineEvent | null {
   }
   if (o.type === 'response.completed') {
     const replyText = replyTextFromResponse(o.response);
-    if (replyText !== null) return { type: 'reply_text', text: replyText };
+    const response = typeof o.response === 'object' && o.response !== null
+      ? o.response as { usage?: unknown }
+      : undefined;
+    const usage = contextUsage(response?.usage);
+    if (replyText !== null) return { type: 'reply_text', text: replyText, ...(usage ? { usage } : {}) };
+    if (usage) return { type: 'context_usage', usage };
+  }
+  if (o.type === 'turn.completed') {
+    const usage = contextUsage(o.usage);
+    if (usage) return { type: 'context_usage', usage };
   }
   return { type: 'unknown', raw: o };
 }

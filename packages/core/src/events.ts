@@ -3,6 +3,7 @@ export type EventType =
   | 'message_appended'
   | 'subagent_status'
   | 'subagent_output'
+  | 'subagent_context'
   | 'subagent_blocked'
   | 'choice_created'
   | 'choice_resolved'

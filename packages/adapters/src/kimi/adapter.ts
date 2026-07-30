@@ -5,6 +5,9 @@ import type {
   AdapterCapabilities,
   CliAdapter,
   DetectResult,
+  DiscoveredModel,
+  ModelDiscoveryInput,
+  ModelDiscoveryResult,
   ModelSelectionInfo,
   SendInput,
   SendResult,
@@ -23,6 +26,10 @@ import {
   type SessionUpdate,
 } from '@agentclientprotocol/sdk';
 import { filterEnv } from '../shared/env.js';
+import {
+  KeyedModelDiscoveryCache,
+  ModelDiscoveryCommandError,
+} from '../shared/model-discovery.js';
 import { injectAgentSquadEnv, injectInstruction } from '../shared/subagent-context.js';
 import { resolveProfile, selectPermissionResponse } from './profiles.js';
 
@@ -30,12 +37,14 @@ const RAW_TAIL_LINES = 20;
 const CANCEL_GRACE_MS = 250;
 const PROCESS_EXIT_GRACE_MS = 250;
 const DETECT_TIMEOUT_MS = 2_000;
+const MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 const TIMEOUT = Symbol('kimi-timeout');
 
 export interface KimiAdapterOpts {
   env?: NodeJS.ProcessEnv;
   binary?: string;
   detectTimeoutMs?: number;
+  modelDiscoveryTimeoutMs?: number;
 }
 
 interface ProtocolResult {
@@ -46,6 +55,7 @@ interface ProtocolResult {
 export class KimiAdapter implements CliAdapter {
   readonly cliType = 'kimi' as const;
   private readonly opts: KimiAdapterOpts;
+  private readonly discoveryCache: KeyedModelDiscoveryCache;
   private detectCache: DetectResult | null = null;
   readonly roles = ['reviewer', 'bug_finder', 'fixer', 'implementer', 'tester'];
   readonly strengths = 'Kimi Code provides repository-aware coding, review, implementation, and testing through its native ACP server.';
@@ -63,6 +73,10 @@ export class KimiAdapter implements CliAdapter {
 
   constructor(opts: KimiAdapterOpts = {}) {
     this.opts = opts;
+    this.discoveryCache = new KeyedModelDiscoveryCache(
+      'kimi ACP session configOptions',
+      (cwd) => this.loadModelOptions(cwd),
+    );
   }
 
   async detect(): Promise<DetectResult> {
@@ -107,6 +121,11 @@ export class KimiAdapter implements CliAdapter {
       autoApprove: true,
       structuredOutput: true,
     };
+  }
+
+  discoverModels(input: ModelDiscoveryInput = {}): Promise<ModelDiscoveryResult> {
+    const cwd = resolve(input.cwd ?? process.cwd());
+    return this.discoveryCache.get(cwd);
   }
 
   async spawnSubagent(input: SpawnInput): Promise<SubagentHandle> {
@@ -280,6 +299,66 @@ export class KimiAdapter implements CliAdapter {
       await Promise.race([guardedProtocol, delay(PROCESS_EXIT_GRACE_MS)]);
     }
   }
+
+  private async loadModelOptions(cwd: string): Promise<ModelDiscoveryResult> {
+    const child = spawn(this.opts.binary ?? 'kimi', ['acp'], {
+      cwd,
+      env: this.opts.env ?? process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    child.stderr.resume();
+
+    const app = client({ name: 'agent-squad-model-discovery' });
+    const protocolPromise = app.connectWith(
+      ndJsonStream(
+        Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+        Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+      ),
+      async (context): Promise<ModelDiscoveryResult> => {
+        await context.request(methods.agent.initialize, {
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: { session: { configOptions: {} } },
+          clientInfo: { name: 'agent-squad', version: AGENT_SQUAD_VERSION },
+        });
+        const created = await context.request(methods.agent.session.new, {
+          cwd,
+          mcpServers: [],
+        });
+        return modelDiscoveryFromConfigOptions(created.configOptions);
+      },
+    );
+    const guardedProtocol = protocolPromise.then(
+      (result) => ({ kind: 'result' as const, result }),
+      () => ({ kind: 'protocol_error' as const }),
+    );
+    const spawnFailure = new Promise<{ kind: 'spawn_error' }>((resolveFailure) => {
+      child.once('error', () => resolveFailure({ kind: 'spawn_error' }));
+    });
+    let timeoutTimer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<{ kind: 'timeout' }>((resolveTimeout) => {
+      timeoutTimer = setTimeout(
+        () => resolveTimeout({ kind: 'timeout' }),
+        this.opts.modelDiscoveryTimeoutMs ?? MODEL_DISCOVERY_TIMEOUT_MS,
+      );
+    });
+
+    try {
+      const outcome = await Promise.race([guardedProtocol, spawnFailure, timeout]);
+      if (outcome.kind === 'result') return outcome.result;
+      if (outcome.kind === 'timeout') {
+        throw new ModelDiscoveryCommandError('model_discovery_timeout');
+      }
+      if (outcome.kind === 'spawn_error') {
+        throw new ModelDiscoveryCommandError('model_discovery_spawn_failed');
+      }
+      throw new ModelDiscoveryCommandError('model_discovery_protocol_error');
+    } finally {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      await terminateChild(child);
+      await Promise.race([guardedProtocol, delay(PROCESS_EXIT_GRACE_MS)]);
+    }
+  }
 }
 
 async function applyConfigSelection(
@@ -307,6 +386,54 @@ function findConfigOption(options: SessionConfigOption[], kind: 'model' | 'think
   const fallback = kind === 'model' ? /model/i : /think|thought|reason/i;
   return options.find((option) => option.category === category)
     ?? options.find((option) => fallback.test(`${option.id} ${option.name}`));
+}
+
+function modelDiscoveryFromConfigOptions(
+  options: SessionConfigOption[] | null | undefined,
+): ModelDiscoveryResult {
+  const source = 'kimi ACP session configOptions';
+  const modelOption = findConfigOption(options ?? [], 'model');
+  if (!modelOption || modelOption.type !== 'select') {
+    return { status: 'unsupported', source, models: [] };
+  }
+
+  const currentModel = typeof modelOption.currentValue === 'string'
+    ? modelOption.currentValue
+    : undefined;
+  const models: DiscoveredModel[] = flattenSelectOptions(modelOption)
+    .map((option) => ({
+      id: option.value,
+      label: option.name,
+      ...(option.value === currentModel ? { isDefault: true } : {}),
+    }));
+
+  const thinkingOption = findConfigOption(options ?? [], 'thinking');
+  const reasoningEfforts = thinkingOption?.type === 'select'
+    ? flattenSelectOptions(thinkingOption).map((option) => option.value)
+    : undefined;
+  const defaultReasoningEffort = thinkingOption?.type === 'select'
+    && typeof thinkingOption.currentValue === 'string'
+    ? thinkingOption.currentValue
+    : undefined;
+
+  return {
+    status: 'available',
+    source,
+    models,
+    ...(currentModel ? { defaultModel: currentModel } : {}),
+    ...(reasoningEfforts ? { reasoningEfforts } : {}),
+    ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
+  };
+}
+
+function flattenSelectOptions(
+  option: Extract<SessionConfigOption, { type: 'select' }>,
+): Array<{ value: string; name: string }> {
+  return option.options
+    .flatMap((entry) => 'options' in entry ? entry.options : [entry])
+    .filter((entry): entry is { value: string; name: string } => (
+      typeof entry.value === 'string' && typeof entry.name === 'string'
+    ));
 }
 
 function resolveConfigValue(

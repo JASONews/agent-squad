@@ -1,4 +1,5 @@
 import type { CliType, SubagentStatus } from '../types.js';
+import type { ContextTelemetry } from '../context-telemetry.js';
 
 export interface ArtifactInput {
   kind: string;
@@ -49,6 +50,7 @@ export interface SendOutput {
 export interface SendResult {
   status: 'completed' | 'running' | 'failed' | 'native_cli_blocked' | 'timeout';
   nativeSessionId?: string;
+  contextTelemetry?: ContextTelemetry;
   reply?: string;
   artifacts?: ArtifactInput[];
   rawTail?: string;
@@ -84,6 +86,42 @@ export interface ModelSelectionInfo {
   };
 }
 
+export type ModelDiscoveryStatus =
+  | 'available'
+  | 'partial'
+  | 'unsupported'
+  | 'unavailable'
+  | 'failed';
+
+export type ModelDiscoveryErrorCode =
+  | 'model_discovery_timeout'
+  | 'model_discovery_spawn_failed'
+  | 'model_discovery_command_failed'
+  | 'model_discovery_protocol_error'
+  | 'model_discovery_failed';
+
+export interface DiscoveredModel {
+  id: string;
+  label?: string;
+  isDefault?: boolean;
+  reasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
+}
+
+export interface ModelDiscoveryResult {
+  status: ModelDiscoveryStatus;
+  source: string;
+  models: DiscoveredModel[];
+  defaultModel?: string;
+  reasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
+  error?: ModelDiscoveryErrorCode;
+}
+
+export interface ModelDiscoveryInput {
+  cwd?: string;
+}
+
 export interface CliAdapter {
   readonly cliType: CliType | 'mock';
   detect(): Promise<DetectResult>;
@@ -96,6 +134,10 @@ export interface CliAdapter {
   roles?: string[];
   /** Model and thinking/reasoning selectors supported by this adapter. */
   modelSelection?: ModelSelectionInfo;
+  /** Discover model choices advertised by the installed CLI. Omitted by adapters that cannot enumerate models. */
+  discoverModels?(input?: ModelDiscoveryInput): Promise<ModelDiscoveryResult>;
+  /** Reject a message before it is persisted or delivered when the adapter has input constraints. */
+  validateMessage?(message: string): void;
   spawnSubagent(input: SpawnInput): Promise<SubagentHandle>;
   send(input: SendInput): Promise<SendResult>;
 }

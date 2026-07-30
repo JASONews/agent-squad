@@ -59,8 +59,25 @@ describe('parseJsonlLine', () => {
     const e = parseJsonlLine('{"type":"item.completed","item":{"id":"item_1","type":"reasoning","text":"thinking..."}}');
     expect(e?.type).toBe('unknown');
   });
-  it('treats turn.started/turn.completed as unknown', () => {
+  it('treats turn.started as unknown and normalizes turn.completed usage', () => {
     expect(parseJsonlLine('{"type":"turn.started"}')?.type).toBe('unknown');
+    expect(parseJsonlLine(JSON.stringify({
+      type: 'turn.completed',
+      usage: {
+        input_tokens: 17916,
+        cached_input_tokens: 4992,
+        output_tokens: 34,
+        reasoning_output_tokens: 27,
+      },
+    }))).toEqual({
+      type: 'context_usage',
+      usage: {
+        inputTokens: 17916,
+        cachedInputTokens: 4992,
+        outputTokens: 34,
+        reasoningOutputTokens: 27,
+      },
+    });
     expect(parseJsonlLine('{"type":"turn.completed","usage":{}}')?.type).toBe('unknown');
   });
   it('returns unknown for an unrecognized future event (forward-compat, no throw)', () => {

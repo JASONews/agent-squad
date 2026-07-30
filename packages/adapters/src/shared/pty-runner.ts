@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import type { ContextTelemetry } from '@agent-squad/core';
 import { accessSync, chmodSync, constants, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
@@ -46,6 +47,7 @@ export interface PtyOutput {
 export interface PtyRunResult {
   status: 'completed' | 'failed' | 'native_cli_blocked' | 'timeout';
   nativeSessionId?: string;
+  contextTelemetry?: ContextTelemetry;
   reply?: string;
   rawTail?: string;
 }
@@ -83,13 +85,25 @@ export function runPtyProcess(opts: PtyRunOptions): Promise<PtyRunResult> {
     let resolved = false;
     let idleTimer: NodeJS.Timeout;
 
+    const capturedNativeSessionId = (): string | undefined => {
+      if (acc?.sessionId) return acc.sessionId;
+      if (!opts.isAntigravity) return undefined;
+      return getConversationId(opts.homeDir ?? homedir(), cwd) ?? undefined;
+    };
+
     const finish = (result: PtyRunResult) => {
       if (resolved) return;
       resolved = true;
       clearTimeout(idleTimer);
       if (hardTimer) clearTimeout(hardTimer);
       try { term.kill(); } catch { /* already dead */ }
-      resolve(result);
+      const nativeSessionId = result.nativeSessionId ?? capturedNativeSessionId();
+      const contextTelemetry = result.contextTelemetry ?? acc?.contextTelemetry;
+      resolve({
+        ...result,
+        ...(nativeSessionId ? { nativeSessionId } : {}),
+        ...(contextTelemetry ? { contextTelemetry } : {}),
+      });
     };
 
     const checkIdle = () => {

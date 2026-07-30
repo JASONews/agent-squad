@@ -12,6 +12,7 @@ const SHIM_ENTRY = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'src',
 
 let daemon: Daemon;
 let base: string;
+const discoveryCwds: Array<string | undefined> = [];
 const seq = (() => {
   let n = 0;
   return () => ++n;
@@ -28,6 +29,7 @@ beforeAll(async () => {
   registry.register('multichoicecli', multiChoiceReplyAdapter());
   registry.register('slowcli', delayedAdapter(40, 'waited done'));
   registry.register('slowchoicecli', delayedChoiceReplyAdapter(40));
+  registry.register('scopedmodels', scopedModelAdapter());
   daemon = await buildDaemon({ config, registry });
   await daemon.start();
   const addr = daemon.app.server.address();
@@ -117,6 +119,24 @@ function delayedChoiceReplyAdapter(delayMs: number): CliAdapter {
   };
 }
 
+function scopedModelAdapter(): CliAdapter {
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    discoverModels: async (input) => {
+      discoveryCwds.push(input?.cwd);
+      return {
+        status: 'available',
+        source: 'scoped test models',
+        models: [{ id: 'scoped/model' }],
+      };
+    },
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async () => ({ status: 'completed', reply: 'done' }),
+  };
+}
+
 interface RpcResponse {
   id?: number;
   result?: { content?: { type: string; text: string }[]; structuredContent?: unknown };
@@ -179,7 +199,7 @@ function safeParse(line: string): RpcResponse | null {
 
 // The MCP server only services `tools/call` after the client completes the
 // `initialize` handshake. Run it once per shim process.
-async function initialize(child: ChildProcess, buf: { s: string }): Promise<void> {
+async function initialize(child: ChildProcess, buf: { s: string }, clientName = 'shim-test'): Promise<void> {
   const id = seq();
   write(child, {
     jsonrpc: '2.0',
@@ -188,7 +208,7 @@ async function initialize(child: ChildProcess, buf: { s: string }): Promise<void
     params: {
       protocolVersion: '2024-11-05',
       capabilities: {},
-      clientInfo: { name: 'shim-test', version: '0.0.0' },
+      clientInfo: { name: clientName, version: '0.0.0' },
     },
   });
   await waitForId(child, id, buf);
@@ -216,14 +236,38 @@ async function callResult(child: ChildProcess, buf: { s: string }, name: string,
 
 describe('mcp shim e2e', () => {
   it(
-    'start_session via stdio round-trips to daemon',
+    'list_subagent_types forwards repository cwd for scoped model discovery',
     async () => {
       const child = startShim();
       const buf = { s: '' };
       try {
         await initialize(child, buf);
+        const cwd = '/repo/project with spaces';
+        const result = (await call(child, buf, 'list_subagent_types', { cwd })) as {
+          available_subagents: Array<{ type: string; model_discovery: { models: Array<{ id: string }> } }>;
+        };
+        expect(discoveryCwds.at(-1)).toBe(cwd);
+        expect(result.available_subagents.find((entry) => entry.type === 'scopedmodels'))
+          .toMatchObject({ model_discovery: { models: [{ id: 'scoped/model' }] } });
+      } finally {
+        child.kill();
+      }
+    },
+  );
+
+  it(
+    'start_session via stdio round-trips to daemon',
+    async () => {
+      const child = startShim();
+      const buf = { s: '' };
+      try {
+        await initialize(child, buf, 'codex-mcp-client');
         const r = (await call(child, buf, 'start_session', { cwd: '/repo', task: 'hello mcp' })) as { session_id: string };
         expect(r.session_id).toMatch(/^sess_/);
+        const sessions = await fetch(`${base}/v1/sessions`).then(async (response) => (
+          response.json() as Promise<{ sessions: Array<{ id: string; main_peer_id: string }> }>
+        ));
+        expect(sessions.sessions.find((session) => session.id === r.session_id)?.main_peer_id).toBe('codex');
       } finally {
         child.kill();
       }
@@ -255,6 +299,55 @@ describe('mcp shim e2e', () => {
         })) as { status: string; artifacts: { kind: string }[] };
         expect(sent.status).toBe('completed');
         expect(sent.artifacts.some((a) => a.kind === 'review_json')).toBe(true);
+      } finally {
+        child.kill();
+      }
+    },
+    20000,
+  );
+
+  it(
+    'get_subagent_status reports a registered subagent as not started',
+    async () => {
+      const child = startShim();
+      const buf = { s: '' };
+      try {
+        await initialize(child, buf);
+        const s = (await call(child, buf, 'start_session', {
+          cwd: '/repo',
+          task: 'inspect status',
+        })) as { session_id: string };
+        const alias = 'sub_inspect /?';
+        await call(child, buf, 'spawn_subagent', {
+          session_id: s.session_id,
+          alias,
+          cli: 'mock',
+          role: 'reviewer',
+          message: 'go',
+        });
+
+        const result = await callResult(child, buf, 'get_subagent_status', {
+          session_id: s.session_id,
+          alias,
+          after_output_event_count: 0,
+        });
+        const text = result.content?.[0]?.text;
+        if (text === undefined) throw new Error('no content in tools/call response');
+        const inspected = JSON.parse(text) as {
+          status: string;
+          progress: {
+            assessment: string;
+            recommended_action: string;
+            output_events: number;
+          };
+        };
+        expect(inspected.status).toBe('ready');
+        expect(inspected.progress).toMatchObject({
+          assessment: 'not_started',
+          recommended_action: 'send',
+          output_events: 0,
+        });
+        expect(result.structuredContent).toEqual(inspected);
       } finally {
         child.kill();
       }

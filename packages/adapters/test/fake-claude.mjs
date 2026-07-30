@@ -11,6 +11,20 @@ if (process.env.FAKE_CLAUDE_CWD_FILE) {
   writeFileSync(process.env.FAKE_CLAUDE_CWD_FILE, process.cwd());
 }
 
+if (args[0] === '--version') {
+  process.stdout.write('2.1.3 (Claude Code)\n');
+  process.exit(0);
+}
+
+if (args[0] === '--help') {
+  process.stdout.write(`Usage: claude [options]
+  --model <model>    Use a model alias such as 'opus' or 'sonnet', or a full name such as 'claude-opus-4-6'
+  --effort <level>   Reasoning effort (low, medium, high, xhigh, max)
+  --verbose          Enable verbose output
+`);
+  process.exit(0);
+}
+
 if (mode === 'fail') {
   process.stderr.write('fake-claude: simulated fatal error\n');
   process.exit(2);

@@ -1,9 +1,32 @@
 import type { LineEvent, LineParser } from '../shared/line-parser.js';
+import type { ContextUsage } from '@agent-squad/core';
 
 interface OpencodeTextSource {
   role?: string;
   text?: string;
   content?: unknown;
+  tokens?: unknown;
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function contextUsage(value: unknown): ContextUsage | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const tokens = value as Record<string, unknown>;
+  const cache = typeof tokens.cache === 'object' && tokens.cache !== null
+    ? tokens.cache as Record<string, unknown>
+    : {};
+  const normalized: ContextUsage = {
+    totalTokens: tokenCount(tokens.total),
+    inputTokens: tokenCount(tokens.input),
+    outputTokens: tokenCount(tokens.output),
+    reasoningOutputTokens: tokenCount(tokens.reasoning),
+    cachedInputTokens: tokenCount(cache.read),
+    cacheWriteInputTokens: tokenCount(cache.write),
+  };
+  return Object.values(normalized).some((count) => count !== undefined) ? normalized : undefined;
 }
 
 function textFromContent(content: unknown): string | null {
@@ -46,6 +69,16 @@ export function parseOpencodeLine(line: string): LineEvent | null {
   if (o.type === 'message' && o.message?.role === 'assistant') {
     const text = textFromSource(o.message);
     if (text !== null) return { type: 'reply_text', text };
+  }
+  if (o.type === 'step_finish') {
+    const usage = contextUsage(o.part?.tokens);
+    if (usage) {
+      return {
+        type: 'context_usage',
+        sessionId: typeof o.sessionID === 'string' ? o.sessionID : undefined,
+        usage,
+      };
+    }
   }
   if (typeof o.sessionID === 'string') {
     return { type: 'session_id', sessionId: o.sessionID };

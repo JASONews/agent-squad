@@ -4,6 +4,7 @@ import { AdapterRegistry, MockAdapter, type CliAdapter, type ResolvedConfig } fr
 
 let daemon: Daemon;
 let base: string;
+const discoveryCwds: Array<string | undefined> = [];
 
 beforeAll(async () => {
   const config: ResolvedConfig = { server: { host: '127.0.0.1', port: 0, dbPath: ':memory:' }, contextPolicy: { default: 'message_only' } };
@@ -12,6 +13,9 @@ beforeAll(async () => {
   registry.register('choicecli', choiceReplyAdapter());
   registry.register('multichoicecli', multiChoiceReplyAdapter());
   registry.register('slowcli', delayedAdapter(40, 'waited done'));
+  registry.register('telemetrycli', telemetryAdapter());
+  registry.register('progresscli', progressAdapter());
+  registry.register('scopedmodels', scopedModelAdapter());
   daemon = await buildDaemon({ config, registry });
   await daemon.start();
   const addr = daemon.app.server.address();
@@ -80,10 +84,76 @@ function delayedAdapter(delayMs: number, reply: string): CliAdapter {
   };
 }
 
+function telemetryAdapter(): CliAdapter {
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async () => ({
+      status: 'completed',
+      nativeSessionId: 'native-context-session',
+      reply: 'observed',
+      contextTelemetry: {
+        usage: { inputTokens: 1234, cachedInputTokens: 500, outputTokens: 42 },
+        compactions: [{ trigger: 'auto', preTokens: 190000 }],
+      },
+    }),
+  };
+}
+
+function progressAdapter(): CliAdapter {
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      input.onOutput?.({ stream: 'stdout', text: 'phase one', rawTail: 'phase one' });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return { status: 'completed', reply: 'finished', rawTail: 'phase one\nfinished' };
+    },
+  };
+}
+
+function scopedModelAdapter(): CliAdapter {
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    discoverModels: async (input) => {
+      discoveryCwds.push(input?.cwd);
+      return {
+        status: 'available',
+        source: 'scoped test models',
+        models: [{ id: 'scoped/model' }],
+      };
+    },
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async () => ({ status: 'completed', reply: 'done' }),
+  };
+}
+
 describe('daemon e2e', () => {
   it('health', async () => {
     const { json } = await get('/v1/health');
     expect(json.ok).toBe(true);
+  });
+
+  it('passes the requested repository cwd to model discovery', async () => {
+    const cwd = '/repo/project with spaces';
+    const { status, json } = await get(`/v1/subagent-types?cwd=${encodeURIComponent(cwd)}`);
+    expect(status).toBe(200);
+    expect(discoveryCwds.at(-1)).toBe(cwd);
+    expect(json.available_subagents.find((entry: { type: string }) => entry.type === 'scopedmodels'))
+      .toMatchObject({
+        status: 'available',
+        model_discovery: {
+          status: 'available',
+          models: [{ id: 'scoped/model' }],
+        },
+      });
   });
 
   it('full mock round-trip', async () => {
@@ -137,6 +207,77 @@ describe('daemon e2e', () => {
       status: 'native_cli_blocked',
       raw_tail: expect.stringContaining('permission approval'),
     }));
+  });
+
+  it('exposes native context telemetry in send and subagent list responses', async () => {
+    const s = await post('/v1/sessions', { cwd: '.', task: 'context telemetry' });
+    const sid = s.json.session_id;
+    await post(`/v1/sessions/${sid}/subagents`, { alias: 'ctx', cli: 'telemetrycli', role: 'r', message: 'go' });
+
+    const sent = await post(`/v1/sessions/${sid}/subagents/ctx/messages`, { message: 'observe', wait: true });
+    expect(sent.json.context_telemetry).toMatchObject({
+      usage: { input_tokens: 1234, cached_input_tokens: 500, output_tokens: 42 },
+      compaction_count: 1,
+      last_compaction: { trigger: 'auto', pre_tokens: 190000 },
+    });
+
+    const list = await get(`/v1/sessions/${sid}/subagents`);
+    expect(list.json.subagents).toContainEqual(expect.objectContaining({
+      alias: 'ctx',
+      native_session_id: 'native-context-session',
+      context_telemetry: expect.objectContaining({
+        usage: expect.objectContaining({ input_tokens: 1234 }),
+        compaction_count: 1,
+      }),
+    }));
+  });
+
+  it('exposes live progress diagnostics and output deltas without blocking', async () => {
+    const s = await post('/v1/sessions', { cwd: '.', task: 'progress diagnostics' });
+    const sid = s.json.session_id;
+    await post(`/v1/sessions/${sid}/subagents`, { alias: 'progress', cli: 'progresscli', role: 'r', message: 'go' });
+
+    const sent = await post(`/v1/sessions/${sid}/subagents/progress/messages`, {
+      message: 'start',
+      wait: true,
+      soft_timeout_ms: 5,
+    });
+    expect(sent.json.status).toBe('running');
+    expect(sent.json.progress).toMatchObject({
+      assessment: 'starting',
+      run_active: true,
+      output_events: 0,
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const inspected = await get(`/v1/sessions/${sid}/subagents/progress?after_output_event_count=0`);
+    expect(inspected.json.progress).toMatchObject({
+      assessment: 'progressing',
+      run_active: true,
+      output_events: 1,
+      new_output_events: 1,
+      has_new_output: true,
+      raw_tail: 'phase one',
+    });
+
+    const unchanged = await get(`/v1/sessions/${sid}/subagents/progress?after_output_event_count=1`);
+    expect(unchanged.json.progress).toMatchObject({
+      output_events: 1,
+      new_output_events: 0,
+      has_new_output: false,
+    });
+
+    const waited = await post(`/v1/sessions/${sid}/subagents/progress/wait`, {
+      after_output_event_count: 1,
+      timeout_ms: 500,
+    });
+    expect(waited.json.status).toBe('completed');
+    expect(waited.json.progress).toMatchObject({
+      assessment: 'completed',
+      run_active: false,
+      output_events: 1,
+      new_output_events: 0,
+    });
   });
 
   it('choice_requested response includes structured choice details', async () => {

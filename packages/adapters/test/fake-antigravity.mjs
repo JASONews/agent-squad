@@ -19,6 +19,17 @@ if (argsPath) {
   writeFileSync(argsPath, JSON.stringify(args));
 }
 
+if (args[0] === '--version') {
+  process.stdout.write('agy 1.2.3\n');
+  process.exit(0);
+}
+
+if (args[0] === 'models') {
+  process.stdout.write('gemini-3.6-flash-high\n');
+  process.stdout.write('claude-opus-4-6-thinking\n');
+  process.exit(0);
+}
+
 // Detect whether --conversation <id> was passed (resume).
 const resumeIdx = args.indexOf('--conversation');
 const isResume = resumeIdx !== -1 && resumeIdx + 1 < args.length;

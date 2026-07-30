@@ -3,9 +3,24 @@ import { homedir } from 'node:os';
 import { resolveProfile, profileFlags } from './profiles.js';
 import { getConversationId } from './conversation.js';
 import { filterEnv } from '../shared/env.js';
+import {
+  ModelDiscoveryCache,
+  parseModelLines,
+  runDiscoveryCommand,
+} from '../shared/model-discovery.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
-import type { CliAdapter, SpawnInput, SubagentHandle, SendInput, SendResult, DetectResult, AdapterCapabilities, ModelSelectionInfo } from '@agent-squad/core';
+import type {
+  AdapterCapabilities,
+  CliAdapter,
+  DetectResult,
+  ModelDiscoveryResult,
+  ModelSelectionInfo,
+  SendInput,
+  SendResult,
+  SpawnInput,
+  SubagentHandle,
+} from '@agent-squad/core';
 
 // agy's `--print` mode does NOT stream — it emits the full reply in one burst after the model
 // finishes thinking. Real agy first-response latency is ~30-40s (verified on agy 1.0.14), so plain
@@ -21,11 +36,13 @@ export interface AntigravityAdapterOpts {
   binary?: string;
   homeDir?: string;
   usePty?: boolean;  // default true; false for tests
+  modelDiscoveryTimeoutMs?: number;
 }
 
 export class AntigravityAdapter implements CliAdapter {
   readonly cliType = 'antigravity' as const;
   private readonly opts: AntigravityAdapterOpts;
+  private readonly discoveryCache: ModelDiscoveryCache;
   private detectCache: DetectResult | null = null;
   private idleTimeoutMs = IDLE_TIMEOUT_MS;
   private blockAfterMs = BLOCK_AFTER_MS;
@@ -36,7 +53,7 @@ export class AntigravityAdapter implements CliAdapter {
     model: {
       parameter: 'model',
       source: 'agy --print --model <model>; run agy models for available full model names.',
-      examples: ['Gemini 3.5 Flash (High)', 'Claude Sonnet 4.6 (Thinking)'],
+      examples: ['gemini-3.5-flash-high', 'claude-opus-4-6-thinking'],
     },
     reasoningEffort: {
       parameter: 'model',
@@ -46,6 +63,16 @@ export class AntigravityAdapter implements CliAdapter {
 
   constructor(opts: AntigravityAdapterOpts = {}) {
     this.opts = opts;
+    this.discoveryCache = new ModelDiscoveryCache('agy models', async () => ({
+      status: 'available',
+      source: 'agy models',
+      models: parseModelLines(await runDiscoveryCommand({
+        binary: this.opts.binary ?? 'agy',
+        args: ['models'],
+        env: this.opts.env ?? process.env,
+        timeoutMs: this.opts.modelDiscoveryTimeoutMs,
+      })),
+    }));
   }
 
   setBlockTimingsForTest(idle: number, block: number): void {
@@ -70,6 +97,10 @@ export class AntigravityAdapter implements CliAdapter {
 
   capabilities(): AdapterCapabilities {
     return { mcp: false, plugin: false, headless: true, resume: true, persistentServer: false, autoApprove: true, structuredOutput: false };
+  }
+
+  discoverModels(): Promise<ModelDiscoveryResult> {
+    return this.discoveryCache.get();
   }
 
   async spawnSubagent(input: SpawnInput): Promise<SubagentHandle> {

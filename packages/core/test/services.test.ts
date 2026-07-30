@@ -1,15 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { openDb } from '../src/db/client.js';
 import type { Db } from '../src/db/client.js';
 import { EventBus } from '../src/events.js';
 import { AdapterRegistry } from '../src/adapters/registry.js';
 import { MockAdapter } from '../src/adapters/mock.js';
 import { startSession } from '../src/services/sessions.js';
-import { spawnSubagent, sendToSubagent, waitForSubagent, WAIT_SUBAGENT_TIMEOUT_MS, WAIT_SUBAGENT_MAX_TIMEOUT_MS } from '../src/services/subagents.js';
+import { spawnSubagent, sendToSubagent, waitForSubagent, inspectSubagent, WAIT_SUBAGENT_TIMEOUT_MS, WAIT_SUBAGENT_MAX_TIMEOUT_MS } from '../src/services/subagents.js';
 import { postArtifact, getArtifact } from '../src/services/artifacts.js';
 import { getMessages } from '../src/services/messages.js';
 import { listSubagentTypes } from '../src/services/subagentTypes.js';
+import { RUN_STALL_SUSPECT_MS } from '../src/run-progress.js';
 import type { CliAdapter, SpawnInput, SubagentHandle, SendInput, SendResult, DetectResult, AdapterCapabilities } from '../src/adapters/types.js';
+import { AppError } from '../src/errors.js';
 
 let db: Db;
 let registry: AdapterRegistry;
@@ -50,6 +52,63 @@ function threadCapturingAdapter(observedNativeSessionIds?: (string | undefined)[
     send: async (input) => {
       observedNativeSessionIds?.push(input.nativeSessionId);
       return { status: 'completed', nativeSessionId: 'thread-xyz', reply: 'ok' };
+    },
+  };
+}
+
+function timeoutThenResumeAdapter(observedNativeSessionIds: (string | undefined)[]): CliAdapter {
+  let sendCount = 0;
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async (input) => {
+      observedNativeSessionIds.push(input.nativeSessionId);
+      sendCount++;
+      return sendCount === 1
+        ? {
+            status: 'timeout',
+            nativeSessionId: 'thread-timeout',
+            rawTail: 'timed out',
+            contextTelemetry: { usage: { inputTokens: 900, outputTokens: 10 } },
+          }
+        : { status: 'completed', nativeSessionId: 'thread-timeout', reply: 'resumed' };
+    },
+  };
+}
+
+function telemetryAdapter(): CliAdapter {
+  let sendCount = 0;
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async () => {
+      sendCount++;
+      if (sendCount === 1) {
+        return {
+          status: 'completed',
+          nativeSessionId: 'thread-telemetry',
+          reply: 'first',
+          contextTelemetry: {
+            usage: { inputTokens: 1000, cachedInputTokens: 400, outputTokens: 50 },
+            compactions: [
+              { trigger: 'auto', preTokens: 190000 },
+              { trigger: 'manual', preTokens: 80000 },
+            ],
+          },
+        };
+      }
+      return {
+        status: 'completed',
+        nativeSessionId: 'thread-telemetry',
+        reply: 'second',
+        contextTelemetry: {
+          usage: { inputTokens: 250, cachedInputTokens: 100, outputTokens: 20 },
+        },
+      };
     },
   };
 }
@@ -113,6 +172,43 @@ function delayedAdapter(delayMs: number, result: SendResult): CliAdapter {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
       return result;
     },
+  };
+}
+
+function delayedOutputAdapter(): CliAdapter {
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      input.onOutput?.({ stream: 'stdout', text: 'working', rawTail: 'working' });
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return { status: 'completed', reply: 'done', rawTail: 'working\ndone' };
+    },
+  };
+}
+
+interface ControlledProgressRun {
+  emit?: (rawTail: string) => void;
+  complete?: (result: SendResult) => void;
+}
+
+function controlledProgressAdapter(control: ControlledProgressRun): CliAdapter {
+  return {
+    cliType: 'mock',
+    detect: async () => ({ available: true }),
+    capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+    send: (input) => new Promise((resolve) => {
+      control.emit = (rawTail) => input.onOutput?.({
+        stream: 'stdout',
+        text: rawTail,
+        rawTail,
+      });
+      control.complete = resolve;
+    }),
   };
 }
 
@@ -182,6 +278,18 @@ describe('services', () => {
     const { sessionId } = startSession(db, { cwd: '/repo', task: 'build it', ownerCli: 'codex' });
     const msgs = getMessages(db, sessionId);
     expect(msgs.some((m) => m.kind === 'user_task')).toBe(true);
+    const session = db.prepare<{ id: string }, { main_peer_id: string }>(
+      'SELECT main_peer_id FROM sessions WHERE id=@id',
+    ).get({ id: sessionId });
+    expect(session?.main_peer_id).toBe('codex');
+  });
+
+  it('startSession uses a neutral main-agent identity when ownerCli is omitted', () => {
+    const { sessionId } = startSession(db, { cwd: '/repo', task: 'build it' });
+    const session = db.prepare<{ id: string }, { main_peer_id: string }>(
+      'SELECT main_peer_id FROM sessions WHERE id=@id',
+    ).get({ id: sessionId });
+    expect(session?.main_peer_id).toBe('main');
   });
 
   it('spawnSubagent + sendToSubagent(review) round-trips and persists review_json artifact', async () => {
@@ -246,6 +354,190 @@ describe('services', () => {
         raw_tail: 'live line',
       },
     });
+  });
+
+  it('tracks live output progress and supports non-blocking inspection with an output baseline', async () => {
+    const r = new AdapterRegistry();
+    r.register('progress', delayedOutputAdapter());
+    const bus = new EventBus();
+    const { sessionId } = startSession(db, { cwd: '/repo', task: 'track progress' });
+    const sp = await spawnSubagent(db, r, { sessionId, alias: 'progress', cli: 'progress', role: 'r', message: 'go' });
+
+    const sent = await sendToSubagent(db, r, {
+      sessionId,
+      alias: 'progress',
+      message: 'start',
+      wait: false,
+    }, bus);
+    expect(sent.status).toBe('running');
+    expect(sent.progress).toMatchObject({
+      assessment: 'starting',
+      runActive: true,
+      outputEvents: 0,
+    });
+
+    await eventually(() => {
+      expect(inspectSubagent(db, { sessionId, subagentId: sp.subagentId }).progress).toMatchObject({
+        assessment: 'progressing',
+        runActive: true,
+        outputEvents: 1,
+        newOutputEvents: 1,
+        hasNewOutput: true,
+        rawTail: 'working',
+      });
+    });
+    const unchanged = inspectSubagent(db, {
+      sessionId,
+      subagentId: sp.subagentId,
+      afterOutputEventCount: 1,
+    });
+    expect(unchanged.progress).toMatchObject({
+      outputEvents: 1,
+      newOutputEvents: 0,
+      hasNewOutput: false,
+    });
+
+    const waited = await waitForSubagent(db, {
+      sessionId,
+      subagentId: sp.subagentId,
+      afterOutputEventCount: 1,
+      timeoutMs: 500,
+    }, bus);
+    expect(waited.status).toBe('completed');
+    expect(waited.progress).toMatchObject({
+      assessment: 'completed',
+      runActive: false,
+      outputEvents: 1,
+      newOutputEvents: 0,
+      rawTail: 'working\ndone',
+    });
+
+    const row = db.prepare<{ id: string }, {
+      run_started_at: string | null;
+      run_last_output_at: string | null;
+      run_output_event_count: number;
+      context_summary: string | null;
+    }>(`SELECT run_started_at, run_last_output_at, run_output_event_count, context_summary
+        FROM subagents WHERE id=@id`).get({ id: sp.subagentId });
+    expect(row?.run_started_at).toBeTruthy();
+    expect(row?.run_last_output_at).toBeTruthy();
+    expect(row?.run_output_event_count).toBe(1);
+    expect(row?.context_summary).toBe('working\ndone');
+  });
+
+  it('classifies a persisted running row without an active execution as orphaned', async () => {
+    const { sessionId } = startSession(db, { cwd: '/repo', task: 'recover interrupted run' });
+    const sp = await spawnSubagent(db, registry, {
+      sessionId,
+      alias: 'interrupted',
+      cli: 'mock',
+      role: 'r',
+      message: 'go',
+    });
+    const startedAt = new Date(Date.now() - 30_000).toISOString();
+    db.prepare(
+      `UPDATE subagents
+       SET status='running',
+           run_started_at=?,
+           run_last_output_at=?,
+           run_output_event_count=?
+       WHERE id=?`
+    ).run(startedAt, startedAt, 3, sp.subagentId);
+
+    const inspected = inspectSubagent(db, {
+      sessionId,
+      subagentId: sp.subagentId,
+      afterOutputEventCount: 3,
+    });
+    expect(inspected.progress).toMatchObject({
+      assessment: 'orphaned',
+      recommendedAction: 'retry_smaller',
+      runActive: false,
+      outputEvents: 3,
+      newOutputEvents: 0,
+    });
+
+    const waited = await waitForSubagent(db, {
+      sessionId,
+      subagentId: sp.subagentId,
+      timeoutMs: 500,
+    });
+    expect(waited).toMatchObject({
+      status: 'running',
+      progress: {
+        assessment: 'orphaned',
+        recommendedAction: 'retry_smaller',
+      },
+    });
+  });
+
+  it('flushes burst output and reschedules early stall detection from the latest output', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-07-29T12:00:00.000Z');
+    try {
+      const control: ControlledProgressRun = {};
+      const r = new AdapterRegistry();
+      r.register('controlled-progress', controlledProgressAdapter(control));
+      const bus = new EventBus();
+      const { sessionId } = startSession(db, { cwd: '/repo', task: 'watch a slow run' });
+      const sp = await spawnSubagent(db, r, {
+        sessionId,
+        alias: 'controlled',
+        cli: 'controlled-progress',
+        role: 'r',
+        message: 'go',
+      });
+      const sent = await sendToSubagent(db, r, {
+        sessionId,
+        subagentId: sp.subagentId,
+        message: 'start',
+        wait: false,
+      }, bus);
+
+      let settled = false;
+      const waiting = waitForSubagent(db, {
+        sessionId,
+        subagentId: sp.subagentId,
+        afterMessageId: sent.messageId,
+        timeoutMs: WAIT_SUBAGENT_MAX_TIMEOUT_MS,
+      }, bus).then((result) => {
+        settled = true;
+        return result;
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      control.emit?.('first');
+      control.emit?.('second');
+
+      const persistedCount = () => db.prepare<[string], { run_output_event_count: number }>(
+        'SELECT run_output_event_count FROM subagents WHERE id=?'
+      ).get(sp.subagentId)?.run_output_event_count;
+      expect(persistedCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(persistedCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(persistedCount()).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(RUN_STALL_SUSPECT_MS - 1_001);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+
+      await expect(waiting).resolves.toMatchObject({
+        status: 'running',
+        progress: {
+          assessment: 'possibly_stalled',
+          recommendedAction: 'consider_split',
+          outputEvents: 2,
+        },
+      });
+
+      control.complete?.({ status: 'completed', reply: 'done', rawTail: 'second\ndone' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(inspectSubagent(db, { sessionId, subagentId: sp.subagentId }).progress)
+        .toMatchObject({ assessment: 'completed', runActive: false });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('sendToSubagent returns running after the soft wait timeout and persists the background reply later', async () => {
@@ -421,6 +713,55 @@ describe('services', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('validates adapter input before persisting a spawn or send message', async () => {
+    const nativeSend = vi.fn(async () => ({ status: 'completed' as const, reply: 'ok' }));
+    const validatingAdapter: CliAdapter = {
+      cliType: 'mock',
+      detect: async () => ({ available: true }),
+      capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+      validateMessage: (message) => {
+        if (message.startsWith('reject')) {
+          throw new AppError('claude_input_requires_english', 'rewrite in English');
+        }
+      },
+      spawnSubagent: async (i) => ({ subagentId: i.subagentId, status: 'ready' }),
+      send: nativeSend,
+    };
+    const r = new AdapterRegistry();
+    r.register('validated', validatingAdapter);
+    const { sessionId } = startSession(db, { cwd: '.', task: 't' });
+
+    await expect(spawnSubagent(db, r, {
+      sessionId,
+      alias: 'rejected',
+      cli: 'validated',
+      role: 'reviewer',
+      message: 'reject this assignment',
+    })).rejects.toMatchObject({ code: 'claude_input_requires_english' });
+    expect(db.prepare('SELECT id FROM subagents WHERE session_id=?').all(sessionId)).toHaveLength(0);
+
+    const spawned = await spawnSubagent(db, r, {
+      sessionId,
+      alias: 'accepted',
+      cli: 'validated',
+      role: 'reviewer',
+      message: 'accept this assignment',
+    });
+    const messagesBefore = getMessages(db, sessionId, { subagentId: spawned.subagentId });
+    await expect(sendToSubagent(db, r, {
+      sessionId,
+      alias: 'accepted',
+      message: 'reject this follow-up',
+      wait: true,
+    })).rejects.toMatchObject({ code: 'claude_input_requires_english' });
+
+    expect(nativeSend).not.toHaveBeenCalled();
+    expect(getMessages(db, sessionId, { subagentId: spawned.subagentId })).toEqual(messagesBefore);
+    expect(db.prepare<[string], { status: string }>(
+      'SELECT status FROM subagents WHERE id=?',
+    ).get(spawned.subagentId)?.status).toBe('ready');
+  });
+
   it('sendToSubagent passes the subagent cwd to adapter.send', async () => {
     let observedCwd: string | undefined = undefined;
     const spyAdapter: CliAdapter = {
@@ -552,6 +893,91 @@ describe('services', () => {
     expect(observedNativeSessionIds).toEqual([undefined, 'thread-xyz']);
   });
 
+  it('persists native_session_id from a timeout result before returning the terminal status', async () => {
+    const observedNativeSessionIds: (string | undefined)[] = [];
+    const r = new AdapterRegistry();
+    r.register('timeoutresume', timeoutThenResumeAdapter(observedNativeSessionIds));
+    const { sessionId } = startSession(db, { cwd: '.', task: 't' });
+    const sp = await spawnSubagent(db, r, { sessionId, alias: 'tr', cli: 'timeoutresume', role: 'r', message: 'go' });
+
+    const first = await sendToSubagent(db, r, { sessionId, alias: 'tr', message: 'first', wait: true });
+    expect(first.status).toBe('timeout');
+    expect(first.contextTelemetry).toMatchObject({
+      usage: { inputTokens: 900, outputTokens: 10 },
+      compactionCount: 0,
+    });
+    const row = db.prepare<{ id: string }, { native_session_id: string | null }>(
+      'SELECT native_session_id FROM subagents WHERE id=?',
+    ).get(sp.subagentId);
+    expect(row?.native_session_id).toBe('thread-timeout');
+
+    const second = await sendToSubagent(db, r, { sessionId, alias: 'tr', message: 'second', wait: true });
+    expect(second).toMatchObject({ status: 'completed', reply: 'resumed' });
+    expect(observedNativeSessionIds).toEqual([undefined, 'thread-timeout']);
+  });
+
+  it('persists latest usage, accumulates compactions, and exposes telemetry to send, wait, and events', async () => {
+    const r = new AdapterRegistry();
+    r.register('telemetry', telemetryAdapter());
+    const bus = new EventBus();
+    const events: { type: string; payload: Record<string, unknown> }[] = [];
+    bus.on((event) => { events.push(event); });
+    const { sessionId } = startSession(db, { cwd: '/repo', task: 'context telemetry' });
+    const sp = await spawnSubagent(db, r, { sessionId, alias: 'ctx', cli: 'telemetry', role: 'r', message: 'go' }, bus);
+
+    const first = await sendToSubagent(db, r, { sessionId, alias: 'ctx', message: 'first', wait: true }, bus);
+    expect(first.contextTelemetry).toMatchObject({
+      usage: { inputTokens: 1000, cachedInputTokens: 400, outputTokens: 50 },
+      compactionCount: 2,
+      lastCompaction: { trigger: 'manual', preTokens: 80000 },
+    });
+    expect(first.contextTelemetry?.updatedAt).toBeTruthy();
+
+    const rowAfterFirst = db.prepare<{ id: string }, {
+      context_usage_json: string | null;
+      context_compaction_count: number;
+      context_last_compaction_json: string | null;
+      context_telemetry_updated_at: string | null;
+    }>(`SELECT context_usage_json, context_compaction_count,
+               context_last_compaction_json, context_telemetry_updated_at
+        FROM subagents WHERE id=@id`).get({ id: sp.subagentId });
+    expect(JSON.parse(rowAfterFirst?.context_usage_json ?? '{}')).toEqual({
+      inputTokens: 1000,
+      cachedInputTokens: 400,
+      outputTokens: 50,
+    });
+    expect(rowAfterFirst?.context_compaction_count).toBe(2);
+    expect(JSON.parse(rowAfterFirst?.context_last_compaction_json ?? '{}')).toMatchObject({
+      trigger: 'manual',
+      preTokens: 80000,
+    });
+    expect(rowAfterFirst?.context_telemetry_updated_at).toBeTruthy();
+
+    const contextEvent = events.find((event) => event.type === 'subagent_context');
+    expect(contextEvent?.payload).toMatchObject({
+      session_id: sessionId,
+      subagent_id: sp.subagentId,
+      context_telemetry: {
+        usage: { input_tokens: 1000, cached_input_tokens: 400, output_tokens: 50 },
+        compaction_count: 2,
+        last_compaction: { trigger: 'manual', pre_tokens: 80000 },
+      },
+    });
+
+    const second = await sendToSubagent(db, r, { sessionId, alias: 'ctx', message: 'second', wait: true }, bus);
+    expect(second.contextTelemetry).toMatchObject({
+      usage: { inputTokens: 250, cachedInputTokens: 100, outputTokens: 20 },
+      compactionCount: 2,
+      lastCompaction: { trigger: 'manual', preTokens: 80000 },
+    });
+
+    const waited = await waitForSubagent(db, { sessionId, alias: 'ctx' }, bus);
+    expect(waited.contextTelemetry).toMatchObject({
+      usage: { inputTokens: 250, cachedInputTokens: 100, outputTokens: 20 },
+      compactionCount: 2,
+    });
+  });
+
   it('sendToSubagent includes the spawn assignment on the first native send only', async () => {
     const observedMessages: string[] = [];
     const r = new AdapterRegistry();
@@ -648,9 +1074,11 @@ describe('services', () => {
     expect(mock?.roles.length).toBeGreaterThan(0);
     expect(mock?.strengths.length).toBeGreaterThan(0);
     expect(mock?.weaknesses.length).toBeGreaterThan(0);
+    expect(mock?.model_discovery.status).toBe('unsupported');
   });
 
-  it('listSubagentTypes reports model selection metadata from adapters', async () => {
+  it('listSubagentTypes reports static selection metadata and dynamic model discovery', async () => {
+    const observedDiscoveryCwds: Array<string | undefined> = [];
     const metadataAdapter: CliAdapter = {
       cliType: 'mock',
       detect: async () => ({ available: true }),
@@ -662,13 +1090,67 @@ describe('services', () => {
         model: { parameter: 'model', source: 'mock models', examples: ['mock-pro'] },
         reasoningEffort: { parameter: 'reasoning_effort', source: 'mock effort', values: ['low', 'high'] },
       },
+      discoverModels: async (input) => {
+        observedDiscoveryCwds.push(input?.cwd);
+        return {
+          status: 'available',
+          source: 'mock models command',
+          models: [{
+            id: 'mock-pro',
+            label: 'Mock Pro',
+            isDefault: true,
+            reasoningEfforts: ['low', 'high'],
+            defaultReasoningEffort: 'high',
+          }],
+          defaultModel: 'mock-pro',
+        };
+      },
       spawnSubagent: async (i: SpawnInput) => ({ subagentId: i.subagentId, status: 'ready' }),
       send: async (_input: SendInput) => ({ status: 'completed', reply: 'ok' }),
     };
     const r = new AdapterRegistry();
     r.register('modelmeta', metadataAdapter);
-    const info = await listSubagentTypes(db, r);
+    const info = await listSubagentTypes(db, r, { cwd: '/repo/project' });
     const modelmeta = info.available_subagents.find((s) => s.type === 'modelmeta');
     expect(modelmeta?.model_selection).toEqual(metadataAdapter.modelSelection);
+    expect(modelmeta?.model_discovery).toEqual({
+      status: 'available',
+      source: 'mock models command',
+      models: [{
+        id: 'mock-pro',
+        label: 'Mock Pro',
+        is_default: true,
+        reasoning_efforts: ['low', 'high'],
+        default_reasoning_effort: 'high',
+      }],
+      default_model: 'mock-pro',
+    });
+    expect(observedDiscoveryCwds).toEqual(['/repo/project']);
+  });
+
+  it('listSubagentTypes keeps the CLI available when model discovery throws', async () => {
+    const discoveryFailureAdapter: CliAdapter = {
+      cliType: 'mock',
+      detect: async () => ({ available: true }),
+      capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+      discoverModels: async () => {
+        throw new Error('sensitive CLI output');
+      },
+      spawnSubagent: async (i: SpawnInput) => ({ subagentId: i.subagentId, status: 'ready' }),
+      send: async (_input: SendInput) => ({ status: 'completed', reply: 'ok' }),
+    };
+    const r = new AdapterRegistry();
+    r.register('model-failure', discoveryFailureAdapter);
+
+    const info = await listSubagentTypes(db, r);
+    const failed = info.available_subagents.find((s) => s.type === 'model-failure');
+    expect(failed?.status).toBe('available');
+    expect(failed?.model_discovery).toEqual({
+      status: 'failed',
+      source: 'adapter model discovery',
+      models: [],
+      error: 'model_discovery_failed',
+    });
+    expect(JSON.stringify(failed)).not.toContain('sensitive CLI output');
   });
 });

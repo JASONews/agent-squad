@@ -1,13 +1,26 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { CliAdapter, SpawnInput, SubagentHandle, SendInput, SendResult, DetectResult, AdapterCapabilities, ModelSelectionInfo } from '@agent-squad/core';
+import type {
+  AdapterCapabilities,
+  CliAdapter,
+  DetectResult,
+  ModelDiscoveryInput,
+  ModelDiscoveryResult,
+  ModelSelectionInfo,
+  SendInput,
+  SendResult,
+  SpawnInput,
+  SubagentHandle,
+} from '@agent-squad/core';
 import { codexParser } from './jsonl.js';
+import { discoverCodexModels } from './model-discovery.js';
 import { resolveProfile, firstSendArgs, resumeArgs } from './profiles.js';
 import { filterEnv } from '../shared/env.js';
 import { runJsonlProcess } from '../shared/jsonl-runner.js';
+import { KeyedModelDiscoveryCache } from '../shared/model-discovery.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
 
@@ -15,11 +28,13 @@ export interface CodexAdapterOpts {
   env?: NodeJS.ProcessEnv;
   binary?: string;
   usePty?: boolean;  // default true for real codex; false for tests/stubs
+  modelDiscoveryTimeoutMs?: number;
 }
 
 export class CodexAdapter implements CliAdapter {
   readonly cliType = 'codex' as const;
   private readonly opts: CodexAdapterOpts;
+  private readonly discoveryCache: KeyedModelDiscoveryCache;
   private detectCache: DetectResult | null = null;
   private idleTimeoutMs = 15_000;
   private blockAfterMs = 30_000;
@@ -34,13 +49,21 @@ export class CodexAdapter implements CliAdapter {
     },
     reasoningEffort: {
       parameter: 'reasoning_effort',
-      source: 'codex exec -c model_reasoning_effort="<value>"',
-      values: ['low', 'medium', 'high', 'xhigh'],
+      source: 'codex exec -c model_reasoning_effort="<value>"; valid values are model-specific and reported by model discovery.',
     },
   };
 
   constructor(opts: CodexAdapterOpts = {}) {
     this.opts = opts;
+    this.discoveryCache = new KeyedModelDiscoveryCache(
+      'codex app-server model/list',
+      (cwd) => discoverCodexModels({
+        binary: this.opts.binary ?? 'codex',
+        env: this.opts.env ?? process.env,
+        cwd,
+        timeoutMs: this.opts.modelDiscoveryTimeoutMs,
+      }),
+    );
   }
 
   /** Test-only: shorten block-detection thresholds. */
@@ -70,6 +93,11 @@ export class CodexAdapter implements CliAdapter {
 
   capabilities(): AdapterCapabilities {
     return { mcp: false, plugin: false, headless: true, resume: true, persistentServer: false, autoApprove: true, structuredOutput: true };
+  }
+
+  discoverModels(input: ModelDiscoveryInput = {}): Promise<ModelDiscoveryResult> {
+    const cwd = resolve(input.cwd ?? process.cwd());
+    return this.discoveryCache.get(cwd);
   }
 
   async spawnSubagent(input: SpawnInput): Promise<SubagentHandle> {

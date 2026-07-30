@@ -1,6 +1,17 @@
 import { join } from 'node:path';
 import { z } from 'zod';
 
+const ClaudeEnglishInputSchema = z.object({
+  enabled: z.boolean().default(true),
+  minimum_ratio: z.number().finite().min(0).max(1).default(0.6),
+}).default({});
+
+const SubagentsSchema = z.object({
+  claude: z.object({
+    english_input: ClaudeEnglishInputSchema,
+  }).passthrough().default({}),
+}).passthrough().default({});
+
 export const ConfigSchema = z.object({
   server: z.object({
     host: z.string().default('127.0.0.1'),
@@ -10,8 +21,7 @@ export const ConfigSchema = z.object({
   context_policy: z.object({
     default: z.enum(['message_only', 'with_refs', 'explicit_delta', 'receiver_pull', 'exact_payload', 'server_generated_summary']).default('message_only'),
   }).default({}),
-  // Recognized but not enforced in M1; allow through so future milestones don't reject existing files.
-  subagents: z.record(z.string(), z.any()).optional(),
+  subagents: SubagentsSchema,
   choice_policy: z.record(z.string(), z.any()).optional(),
   security: z.record(z.string(), z.any()).optional(),
 }).strict();
@@ -21,6 +31,14 @@ export type RawConfig = z.infer<typeof ConfigSchema>;
 export interface ResolvedConfig {
   server: { host: string; port: number; dbPath: string };
   contextPolicy: { default: string };
+  subagents?: {
+    claude: {
+      englishInput: {
+        enabled: boolean;
+        minimumRatio: number;
+      };
+    };
+  };
 }
 
 export function resolveConfig(raw: RawConfig, home: string): ResolvedConfig {
@@ -31,6 +49,14 @@ export function resolveConfig(raw: RawConfig, home: string): ResolvedConfig {
       dbPath: expandHome(raw.server.db_path, home),
     },
     contextPolicy: { default: raw.context_policy.default },
+    subagents: {
+      claude: {
+        englishInput: {
+          enabled: raw.subagents.claude.english_input.enabled,
+          minimumRatio: raw.subagents.claude.english_input.minimum_ratio,
+        },
+      },
+    },
   };
 }
 

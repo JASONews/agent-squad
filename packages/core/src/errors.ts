@@ -7,6 +7,7 @@ export type ErrorCode =
   | 'unknown_cli_type'
   | 'adapter_unavailable'
   | 'permission_profile_unknown'
+  | 'claude_input_requires_english'
   | 'send_timeout'
   | 'internal_error';
 
@@ -19,6 +20,7 @@ const HTTP_STATUS: Record<ErrorCode, number> = {
   unknown_cli_type: 400,
   adapter_unavailable: 503,
   permission_profile_unknown: 400,
+  claude_input_requires_english: 400,
   send_timeout: 504,
   internal_error: 500,
 };

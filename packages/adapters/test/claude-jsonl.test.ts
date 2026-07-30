@@ -13,6 +13,46 @@ describe('parseClaudeLine', () => {
     expect(e).toEqual({ type: 'reply_text', text: 'final answer', sessionId: 'claude-session' });
   });
 
+  it('normalizes result usage', () => {
+    const e = parseClaudeLine(JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      session_id: 'claude-session',
+      result: 'final answer',
+      usage: {
+        input_tokens: 120,
+        cache_read_input_tokens: 80,
+        cache_creation_input_tokens: 12,
+        output_tokens: 9,
+      },
+    }));
+    expect(e).toEqual({
+      type: 'reply_text',
+      text: 'final answer',
+      sessionId: 'claude-session',
+      usage: {
+        inputTokens: 120,
+        cachedInputTokens: 80,
+        cacheWriteInputTokens: 12,
+        outputTokens: 9,
+      },
+    });
+  });
+
+  it('parses compact boundaries', () => {
+    const e = parseClaudeLine(JSON.stringify({
+      type: 'system',
+      subtype: 'compact_boundary',
+      session_id: 'claude-session',
+      compact_metadata: { trigger: 'auto', pre_tokens: 198000 },
+    }));
+    expect(e).toEqual({
+      type: 'context_compaction',
+      sessionId: 'claude-session',
+      compaction: { trigger: 'auto', preTokens: 198000 },
+    });
+  });
+
   it('parses result error into error', () => {
     const e = parseClaudeLine('{"type":"result","subtype":"error","session_id":"claude-session","error":"boom"}');
     expect(e).toEqual({ type: 'error', message: 'boom', sessionId: 'claude-session' });
@@ -39,17 +79,22 @@ describe('parseClaudeLine', () => {
 });
 
 describe('claudeParser accumulation', () => {
-  it('captures session id and final result', () => {
+  it('captures session id, compaction, final result, and usage', () => {
     const acc = new LineAccumulator();
     for (const line of [
       '{"type":"system","subtype":"init","session_id":"claude-session"}',
       '{"type":"assistant","session_id":"claude-session","message":{"role":"assistant","content":[{"type":"text","text":"ignored"}]}}',
-      '{"type":"result","subtype":"success","session_id":"claude-session","result":"final answer"}',
+      '{"type":"system","subtype":"compact_boundary","session_id":"claude-session","compact_metadata":{"trigger":"manual","pre_tokens":180000}}',
+      '{"type":"result","subtype":"success","session_id":"claude-session","result":"final answer","usage":{"input_tokens":42000,"output_tokens":200}}',
     ]) {
       const e = claudeParser.parse(line);
       if (e) acc.add(e);
     }
     expect(acc.sessionId).toBe('claude-session');
     expect(acc.replyText).toBe('final answer');
+    expect(acc.contextTelemetry).toEqual({
+      usage: { inputTokens: 42000, outputTokens: 200 },
+      compactions: [{ trigger: 'manual', preTokens: 180000 }],
+    });
   });
 });

@@ -21,8 +21,23 @@ const fakeParser: LineParser = {
     let obj: unknown;
     try { obj = JSON.parse(trimmed); } catch { return { type: 'unknown', raw: trimmed }; }
     if (typeof obj !== 'object' || obj === null) return { type: 'unknown', raw: obj };
-    const o = obj as { type?: string; sessionID?: string; part?: { text?: string } };
+    const o = obj as {
+      type?: string;
+      sessionID?: string;
+      part?: { text?: string; tokens?: { total?: number; input?: number; output?: number } };
+    };
     if (o.type === 'text' && o.part && typeof o.part.text === 'string') return { type: 'reply_text', text: o.part.text };
+    if (o.type === 'step_finish' && o.part?.tokens) {
+      return {
+        type: 'context_usage',
+        sessionId: o.sessionID,
+        usage: {
+          totalTokens: o.part.tokens.total,
+          inputTokens: o.part.tokens.input,
+          outputTokens: o.part.tokens.output,
+        },
+      };
+    }
     if (typeof o.sessionID === 'string') return { type: 'session_id', sessionId: o.sessionID };
     return { type: 'unknown', raw: o };
   },
@@ -55,6 +70,9 @@ describe('runJsonlProcess', () => {
     expect(r.status).toBe('completed');
     expect(r.nativeSessionId).toBe('ses_0d2337b5fffeiyrJobPy9dYLhs');
     expect(r.reply).toBe('pong');
+    expect(r.contextTelemetry).toEqual({
+      usage: { totalTokens: 17061, inputTokens: 15134, outputTokens: 21 },
+    });
     expect(outputs.some((output) => output.stream === 'stdout' && output.rawTail.includes('pong'))).toBe(true);
   });
 
@@ -92,6 +110,7 @@ describe('runJsonlProcess', () => {
       parser: fakeParser, idleTimeoutMs: 500, blockAfterMs: 1500,
     });
     expect(r.status).toBe('native_cli_blocked');
+    expect(r.nativeSessionId).toBe('ses-x');
     expect(r.rawTail).toMatch(/approval|pending|permission/i);
   }, 20000);
 

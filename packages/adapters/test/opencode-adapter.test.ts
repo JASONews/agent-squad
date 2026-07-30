@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, mkdirSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, symlinkSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +37,47 @@ describe('OpencodeAdapter model selection metadata', () => {
     expect(a.modelSelection?.model?.parameter).toBe('model');
     expect(a.modelSelection?.reasoningEffort?.parameter).toBe('reasoning_effort');
     expect(a.modelSelection?.reasoningEffort?.source).toContain('--variant');
+  });
+});
+
+describe('OpencodeAdapter.discoverModels', () => {
+  it('lists configured provider/model ids and removes ANSI duplicates', async () => {
+    const bin = setupFakeBin();
+    const repo = join(tmp, 'repo');
+    const cwdFile = join(tmp, 'models-cwd.txt');
+    mkdirSync(repo);
+    const a = new OpencodeAdapter({
+      usePty: false,
+      env: {
+        ...process.env,
+        PATH: bin + ':' + (process.env.PATH ?? ''),
+        FAKE_OPENCODE_CWD_FILE: cwdFile,
+      },
+    });
+
+    expect(await a.discoverModels({ cwd: repo })).toEqual({
+      status: 'available',
+      source: 'opencode models',
+      models: [
+        { id: 'openai/gpt-5.6' },
+        { id: 'anthropic/claude-opus-4-6' },
+      ],
+    });
+    expect(realpathSync(readFileSync(cwdFile, 'utf8'))).toBe(realpathSync(repo));
+  });
+
+  it('reports a safe failure code when the model command cannot spawn', async () => {
+    const a = new OpencodeAdapter({
+      usePty: false,
+      env: { ...process.env, PATH: '/nonexistent' },
+    });
+
+    expect(await a.discoverModels()).toEqual({
+      status: 'failed',
+      source: 'opencode models',
+      models: [],
+      error: 'model_discovery_spawn_failed',
+    });
   });
 });
 

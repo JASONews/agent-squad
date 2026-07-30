@@ -48,6 +48,22 @@ describe('AntigravityAdapter model selection metadata', () => {
   });
 });
 
+describe('AntigravityAdapter.discoverModels', () => {
+  it('lists the full model ids advertised by agy', async () => {
+    const bin = setupFakeBin();
+    const a = new AntigravityAdapter({ usePty: false, env: withBin(bin) });
+
+    expect(await a.discoverModels()).toEqual({
+      status: 'available',
+      source: 'agy models',
+      models: [
+        { id: 'gemini-3.6-flash-high' },
+        { id: 'claude-opus-4-6-thinking' },
+      ],
+    });
+  });
+});
+
 describe('AntigravityAdapter.spawnSubagent', () => {
   it('lazy + validates profile', async () => {
     const a = new AntigravityAdapter({ usePty: false, env: process.env });

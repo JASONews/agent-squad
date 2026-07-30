@@ -48,6 +48,31 @@ describe('CodexAdapter model selection metadata', () => {
   });
 });
 
+describe('CodexAdapter.discoverModels', () => {
+  it('reads models and per-model reasoning efforts from the app server', async () => {
+    const bin = setupFakeCodexBin();
+    const a = new CodexAdapter({ usePty: false, env: withBin(bin) });
+
+    expect(await a.discoverModels()).toEqual({
+      status: 'available',
+      source: 'codex app-server model/list',
+      models: [{
+        id: 'gpt-5.6-sol',
+        label: 'GPT-5.6-Sol',
+        isDefault: true,
+        reasoningEfforts: ['low', 'high', 'max'],
+        defaultReasoningEffort: 'high',
+      }, {
+        id: 'gpt-5.6-terra',
+        label: 'GPT-5.6-Terra',
+        reasoningEfforts: ['medium', 'high'],
+        defaultReasoningEffort: 'medium',
+      }],
+      defaultModel: 'gpt-5.6-sol',
+    });
+  });
+});
+
 describe('CodexAdapter.spawnSubagent', () => {
   it('is lazy: returns ready without running codex; validates profile', async () => {
     const a = new CodexAdapter({ usePty: false, env: process.env });

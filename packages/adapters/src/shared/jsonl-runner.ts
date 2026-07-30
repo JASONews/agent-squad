@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import type { ContextTelemetry } from '@agent-squad/core';
 import type { LineParser, LineAccumulator } from './line-parser.js';
 import { LineAccumulator as Acc, LineBuffer } from './line-parser.js';
 
@@ -30,6 +31,7 @@ export interface RunOutput {
 export interface RunJsonlResult {
   status: 'completed' | 'failed' | 'native_cli_blocked' | 'timeout';
   nativeSessionId?: string;
+  contextTelemetry?: ContextTelemetry;
   reply?: string;
   rawTail?: string;
 }
@@ -62,7 +64,13 @@ export function runJsonlProcess(opts: RunJsonlOptions): Promise<RunJsonlResult> 
       clearTimeout(idleTimer);
       if (hardTimer) clearTimeout(hardTimer);
       try { child.kill('SIGKILL'); } catch { /* already dead */ }
-      resolve(result);
+      const nativeSessionId = result.nativeSessionId ?? acc.sessionId ?? undefined;
+      const contextTelemetry = result.contextTelemetry ?? acc.contextTelemetry;
+      resolve({
+        ...result,
+        ...(nativeSessionId ? { nativeSessionId } : {}),
+        ...(contextTelemetry ? { contextTelemetry } : {}),
+      });
     };
     const onBlocked = () => finish({ status: 'native_cli_blocked', rawTail: tail.slice(-RAW_TAIL_LINES).join('\n') });
     const parseStdoutLine = (line: string) => {

@@ -48,6 +48,33 @@ describe('opencodeParser', () => {
     const e = opencodeParser.parse('{"type":"step_start","sessionID":"ses-y","part":{"type":"step-start"}}');
     expect(e).toEqual({ type: 'session_id', sessionId: 'ses-y' });
   });
+  it('step_finish normalizes token usage', () => {
+    const e = opencodeParser.parse(JSON.stringify({
+      type: 'step_finish',
+      sessionID: 'ses-y',
+      part: {
+        tokens: {
+          total: 17061,
+          input: 15134,
+          output: 21,
+          reasoning: 0,
+          cache: { read: 1906, write: 0 },
+        },
+      },
+    }));
+    expect(e).toEqual({
+      type: 'context_usage',
+      sessionId: 'ses-y',
+      usage: {
+        totalTokens: 17061,
+        inputTokens: 15134,
+        outputTokens: 21,
+        reasoningOutputTokens: 0,
+        cachedInputTokens: 1906,
+        cacheWriteInputTokens: 0,
+      },
+    });
+  });
   it('blank line → null', () => {
     expect(opencodeParser.parse('')).toBeNull();
     expect(opencodeParser.parse('   ')).toBeNull();
@@ -63,7 +90,7 @@ describe('opencodeParser', () => {
 });
 
 describe('opencodeParser over opencode-success.jsonl', () => {
-  it('captures sessionID + reply text, ignores step_start/step_finish', () => {
+  it('captures sessionID, reply text, and final usage', () => {
     const acc = new LineAccumulator();
     for (const l of lines('opencode-success.jsonl')) {
       const e = opencodeParser.parse(l);
@@ -71,6 +98,16 @@ describe('opencodeParser over opencode-success.jsonl', () => {
     }
     expect(acc.sessionId).toBe('ses_0d2337b5fffeiyrJobPy9dYLhs');
     expect(acc.replyText).toBe('pong');
+    expect(acc.contextTelemetry).toEqual({
+      usage: {
+        totalTokens: 17061,
+        inputTokens: 15134,
+        outputTokens: 21,
+        reasoningOutputTokens: 0,
+        cachedInputTokens: 1906,
+        cacheWriteInputTokens: 0,
+      },
+    });
   });
 });
 
@@ -83,5 +120,15 @@ describe('opencodeParser over opencode-resume.jsonl', () => {
     }
     expect(acc.sessionId).toBe('ses_0d2337b5fffeiyrJobPy9dYLhs');
     expect(acc.replyText).toBe('pong');
+    expect(acc.contextTelemetry).toEqual({
+      usage: {
+        totalTokens: 17116,
+        inputTokens: 15181,
+        outputTokens: 29,
+        reasoningOutputTokens: 0,
+        cachedInputTokens: 1906,
+        cacheWriteInputTokens: 0,
+      },
+    });
   });
 });

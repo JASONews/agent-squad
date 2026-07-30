@@ -39,6 +39,47 @@ describe('loadConfig', () => {
     expect(cfg.server.host).toBe('127.0.0.1');
     expect(cfg.server.port).toBe(28771);
     expect(cfg.contextPolicy.default).toBe('message_only');
+    expect(cfg.subagents?.claude.englishInput).toEqual({
+      enabled: true,
+      minimumRatio: 0.6,
+    });
+  });
+
+  it('loads the Claude English input policy', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    writeFileSync(join(dir, 'agent-squad.yml'), [
+      'subagents:',
+      '  claude:',
+      '    english_input:',
+      '      enabled: false',
+      '      minimum_ratio: 0.35',
+      '',
+    ].join('\n'));
+    try {
+      const cfg = await loadConfig({ cwd: dir, home: '/nonexistent' });
+      expect(cfg.subagents?.claude.englishInput).toEqual({
+        enabled: false,
+        minimumRatio: 0.35,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects an out-of-range Claude English input ratio', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    writeFileSync(join(dir, 'agent-squad.yml'), [
+      'subagents:',
+      '  claude:',
+      '    english_input:',
+      '      minimum_ratio: 1.1',
+      '',
+    ].join('\n'));
+    try {
+      await expect(loadConfig({ cwd: dir, home: '/nonexistent' })).rejects.toThrow(/invalid config/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('rejects unknown keys', async () => {

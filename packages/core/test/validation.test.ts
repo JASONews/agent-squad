@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  StartSessionSchema, SpawnSubagentSchema, SendToSubagentBodySchema, PostArtifactSchema,
+  StartSessionSchema, SpawnSubagentSchema, SendToSubagentBodySchema,
+  WaitSubagentBodySchema, InspectSubagentQuerySchema, PostArtifactSchema,
 } from '../src/validation/schemas.js';
 
 describe('validation schemas', () => {
@@ -29,6 +30,13 @@ describe('validation schemas', () => {
   it('SendToSubagentBodySchema requires message', () => {
     expect(SendToSubagentBodySchema.safeParse({}).success).toBe(false);
     expect(SendToSubagentBodySchema.safeParse({ message: 'hi' }).success).toBe(true);
+  });
+  it('progress baselines accept nonnegative integers only', () => {
+    expect(WaitSubagentBodySchema.safeParse({ after_output_event_count: 0 }).success).toBe(true);
+    expect(WaitSubagentBodySchema.safeParse({ after_output_event_count: -1 }).success).toBe(false);
+    const query = InspectSubagentQuerySchema.safeParse({ after_output_event_count: '12' });
+    expect(query.success && query.data.after_output_event_count).toBe(12);
+    expect(InspectSubagentQuerySchema.safeParse({ after_output_event_count: '1.5' }).success).toBe(false);
   });
   it('PostArtifactSchema requires kind + content', () => {
     expect(PostArtifactSchema.safeParse({ kind: 'summary' }).success).toBe(false);

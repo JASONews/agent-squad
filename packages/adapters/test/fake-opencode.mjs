@@ -1,8 +1,23 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_OPENCODE_MODE ?? 'success';
 const fixture = process.env.FAKE_OPENCODE_FIXTURE ?? '';
+
+if (args[0] === '--version') {
+  process.stdout.write('opencode 1.2.3\n');
+  process.exit(0);
+}
+
+if (args[0] === 'models') {
+  if (process.env.FAKE_OPENCODE_CWD_FILE) {
+    writeFileSync(process.env.FAKE_OPENCODE_CWD_FILE, process.cwd());
+  }
+  process.stdout.write('\u001b[32mopenai/gpt-5.6\u001b[0m\n');
+  process.stdout.write('anthropic/claude-opus-4-6\n');
+  process.stdout.write('openai/gpt-5.6\n');
+  process.exit(0);
+}
 
 function emitFixture() {
   if (fixture) {
