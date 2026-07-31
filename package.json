@@ -1,6 +1,6 @@
 {
   "name": "@jasonews/agent-squad",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Local external-subagent runtime for coding CLIs.",
   "license": "MIT",
   "type": "module",

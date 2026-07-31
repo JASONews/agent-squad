@@ -100,6 +100,34 @@ export type ModelDiscoveryErrorCode =
   | 'model_discovery_protocol_error'
   | 'model_discovery_failed';
 
+export type ModelCostTier = 'low' | 'medium' | 'high' | 'unknown';
+export type ModelLatencyTier = 'fast' | 'medium' | 'slow' | 'unknown';
+
+export interface ModelCapabilityDetails {
+  summary?: string;
+  strengths?: string[];
+  weaknesses?: string[];
+  recommendedFor?: string[];
+  avoidFor?: string[];
+  costTier?: ModelCostTier;
+  latencyTier?: ModelLatencyTier;
+  /** Relative routing preference from 0 to 100. It is advisory, not an automatic scheduler weight. */
+  priority?: number;
+}
+
+export interface ModelCapabilityProfile extends ModelCapabilityDetails {
+  effortProfiles?: Record<string, ModelCapabilityDetails>;
+}
+
+/** Keys are exact model ids or `*` glob patterns. */
+export type ModelProfileCatalog = Record<string, ModelCapabilityProfile>;
+
+export type ModelProfileSource = 'official_default' | 'user_override' | 'merged';
+
+export interface ResolvedModelCapabilityProfile extends ModelCapabilityProfile {
+  source: ModelProfileSource;
+}
+
 export interface DiscoveredModel {
   id: string;
   label?: string;
@@ -134,6 +162,10 @@ export interface CliAdapter {
   roles?: string[];
   /** Model and thinking/reasoning selectors supported by this adapter. */
   modelSelection?: ModelSelectionInfo;
+  /** Versioned model capability defaults maintained by Agent Squad. */
+  modelProfiles?: ModelProfileCatalog;
+  /** User model capability overrides loaded from agent-squad.yml. */
+  modelProfileOverrides?: ModelProfileCatalog;
   /** Discover model choices advertised by the installed CLI. Omitted by adapters that cannot enumerate models. */
   discoverModels?(input?: ModelDiscoveryInput): Promise<ModelDiscoveryResult>;
   /** Reject a message before it is persisted or delivered when the adapter has input constraints. */

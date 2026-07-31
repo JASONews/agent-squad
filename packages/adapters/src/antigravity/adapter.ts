@@ -10,11 +10,13 @@ import {
 } from '../shared/model-discovery.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
+import { OFFICIAL_MODEL_PROFILES } from '../model-profiles.js';
 import type {
   AdapterCapabilities,
   CliAdapter,
   DetectResult,
   ModelDiscoveryResult,
+  ModelProfileCatalog,
   ModelSelectionInfo,
   SendInput,
   SendResult,
@@ -37,6 +39,7 @@ export interface AntigravityAdapterOpts {
   homeDir?: string;
   usePty?: boolean;  // default true; false for tests
   modelDiscoveryTimeoutMs?: number;
+  modelProfileOverrides?: ModelProfileCatalog;
 }
 
 export class AntigravityAdapter implements CliAdapter {
@@ -49,6 +52,8 @@ export class AntigravityAdapter implements CliAdapter {
   readonly roles = ['ui_implementer', 'ui_reviewer', 'product_designer', 'architect'];
   readonly strengths = 'UI/product design, visual layout, and front-end implementation. Strong at understanding design intent and producing polished interfaces.';
   readonly weaknesses = 'Not suited for code review, bug finding, or backend logic. Higher latency (~40s per response). Plain-text output only (no structured JSON).';
+  readonly modelProfiles = OFFICIAL_MODEL_PROFILES.antigravity;
+  readonly modelProfileOverrides: ModelProfileCatalog;
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
@@ -63,6 +68,7 @@ export class AntigravityAdapter implements CliAdapter {
 
   constructor(opts: AntigravityAdapterOpts = {}) {
     this.opts = opts;
+    this.modelProfileOverrides = opts.modelProfileOverrides ?? {};
     this.discoveryCache = new ModelDiscoveryCache('agy models', async () => ({
       status: 'available',
       source: 'agy models',

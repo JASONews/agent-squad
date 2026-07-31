@@ -6,6 +6,7 @@ import type {
   DetectResult,
   ModelDiscoveryInput,
   ModelDiscoveryResult,
+  ModelProfileCatalog,
   ModelSelectionInfo,
   SendInput,
   SendResult,
@@ -23,12 +24,14 @@ import {
 } from '../shared/model-discovery.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
+import { OFFICIAL_MODEL_PROFILES } from '../model-profiles.js';
 
 export interface OpencodeAdapterOpts {
   env?: NodeJS.ProcessEnv;
   binary?: string;
   usePty?: boolean;
   modelDiscoveryTimeoutMs?: number;
+  modelProfileOverrides?: ModelProfileCatalog;
 }
 
 export class OpencodeAdapter implements CliAdapter {
@@ -41,6 +44,8 @@ export class OpencodeAdapter implements CliAdapter {
   readonly roles = ['implementer', 'tester', 'fallback_generalist', 'reviewer'];
   readonly strengths = 'Multi-model support with flexible fallback. Good at implementation, testing, and general-purpose tasks across different model providers.';
   readonly weaknesses = 'Review quality may vary by model. Not specialized for UI design.';
+  readonly modelProfiles = OFFICIAL_MODEL_PROFILES.opencode;
+  readonly modelProfileOverrides: ModelProfileCatalog;
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
@@ -55,6 +60,7 @@ export class OpencodeAdapter implements CliAdapter {
 
   constructor(opts: OpencodeAdapterOpts = {}) {
     this.opts = opts;
+    this.modelProfileOverrides = opts.modelProfileOverrides ?? {};
     this.discoveryCache = new KeyedModelDiscoveryCache(
       'opencode models',
       async (cwd) => ({

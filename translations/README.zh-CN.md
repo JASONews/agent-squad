@@ -132,7 +132,7 @@ bash skills/install.sh all
 | 工具 | 用途 |
 |---|---|
 | `start_session` | 创建一个协作会话 |
-| `list_subagent_types` | 查看可用子代理类型和能力 |
+| `list_subagent_types` | 查看可用子代理、动态发现的模型以及模型级能力画像 |
 | `spawn_subagent` | 启动一个子代理（`codex`、`opencode`、`antigravity`、`claude`、`kimi`） |
 | `send_to_subagent` | 向子代理发送消息 |
 | `wait_subagent` | 等待正在运行的子代理结果，不发送新消息 |
@@ -233,7 +233,28 @@ server:
   db_path: ~/.agent-squad/agent-squad.db
 context_policy:
   default: message_only
+subagents:
+  claude:
+    english_input:
+      enabled: true
+      minimum_ratio: 0.6
+  codex:
+    model_profiles:
+      "gpt-5.6-luna":
+        strengths: [常规实现, bug 修复]
+        weaknesses: [高风险架构决策]
+        recommended_for: [implementation, testing]
+        avoid_for: [security review]
+        cost_tier: low
+        latency_tier: fast
+        priority: 95
+        effort_profiles:
+          max:
+            summary: 常规工作需要更谨慎时优先使用
+            priority: 98
 ```
+
+Agent Squad 为 Codex、OpenCode、Antigravity、Claude Code 和 Kimi Code 维护随版本发布的官方模型画像。`list_subagent_types` 会把画像合并到动态发现的模型中，让主 agent 比较 strengths、weaknesses、适用任务、相对成本/延迟以及 reasoning effort 建议。用户可以通过 `model_profiles` 做局部覆盖；键支持精确模型 ID 或 `*` glob。画像仅用于路由参考，不代表价格承诺。
 
 ## 开发
 

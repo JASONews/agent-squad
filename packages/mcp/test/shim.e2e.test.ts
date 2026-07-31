@@ -124,6 +124,19 @@ function scopedModelAdapter(): CliAdapter {
     cliType: 'mock',
     detect: async () => ({ available: true }),
     capabilities: () => ({ mcp: true, plugin: true, headless: true, resume: true, persistentServer: true, autoApprove: true, structuredOutput: true }),
+    modelProfiles: {
+      '*': {
+        strengths: ['official scoped work'],
+        weaknesses: ['official limitation'],
+        priority: 60,
+      },
+    },
+    modelProfileOverrides: {
+      'scoped/model': {
+        strengths: ['repository-specific work'],
+        priority: 94,
+      },
+    },
     discoverModels: async (input) => {
       discoveryCwds.push(input?.cwd);
       return {
@@ -244,11 +257,36 @@ describe('mcp shim e2e', () => {
         await initialize(child, buf);
         const cwd = '/repo/project with spaces';
         const result = (await call(child, buf, 'list_subagent_types', { cwd })) as {
-          available_subagents: Array<{ type: string; model_discovery: { models: Array<{ id: string }> } }>;
+          available_subagents: Array<{
+            type: string;
+            model_discovery: {
+              models: Array<{
+                id: string;
+                profile?: {
+                  source: string;
+                  strengths?: string[];
+                  weaknesses?: string[];
+                  priority?: number;
+                };
+              }>;
+            };
+          }>;
         };
         expect(discoveryCwds.at(-1)).toBe(cwd);
         expect(result.available_subagents.find((entry) => entry.type === 'scopedmodels'))
-          .toMatchObject({ model_discovery: { models: [{ id: 'scoped/model' }] } });
+          .toMatchObject({
+            model_discovery: {
+              models: [{
+                id: 'scoped/model',
+                profile: {
+                  source: 'merged',
+                  strengths: ['repository-specific work'],
+                  weaknesses: ['official limitation'],
+                  priority: 94,
+                },
+              }],
+            },
+          });
       } finally {
         child.kill();
       }

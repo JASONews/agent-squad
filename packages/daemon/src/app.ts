@@ -30,25 +30,34 @@ async function defaultRegistry(config: ResolvedConfig): Promise<AdapterRegistry>
   if (process.env.NODE_ENV === 'test' || process.env.AGENT_SQUAD_ENABLE_MOCK === '1') {
     r.register('mock', new MockAdapter());
   }
-  const codex = new CodexAdapter();
+  const codex = new CodexAdapter({
+    modelProfileOverrides: config.subagents?.codex.modelProfiles,
+  });
   if ((await codex.detect()).available) {
     r.register('codex', codex);
   }
-  const opencode = new OpencodeAdapter();
+  const opencode = new OpencodeAdapter({
+    modelProfileOverrides: config.subagents?.opencode.modelProfiles,
+  });
   if ((await opencode.detect()).available) {
     r.register('opencode', opencode);
   }
-  const antigravity = new AntigravityAdapter();
+  const antigravity = new AntigravityAdapter({
+    modelProfileOverrides: config.subagents?.antigravity.modelProfiles,
+  });
   if ((await antigravity.detect()).available) {
     r.register('antigravity', antigravity);
   }
   const claude = new ClaudeAdapter({
     englishInputPolicy: config.subagents?.claude.englishInput,
+    modelProfileOverrides: config.subagents?.claude.modelProfiles,
   });
   if ((await claude.detect()).available) {
     r.register('claude', claude);
   }
-  const kimi = new KimiAdapter();
+  const kimi = new KimiAdapter({
+    modelProfileOverrides: config.subagents?.kimi.modelProfiles,
+  });
   if ((await kimi.detect()).available) {
     r.register('kimi', kimi);
   }

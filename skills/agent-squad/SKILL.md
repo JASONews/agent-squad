@@ -22,7 +22,7 @@ First, check what's available and what each CLI is good/bad at:
 
 ```
 list_subagent_types({ cwd: "<repository path>" })
-→ Returns each CLI's roles, strengths, weaknesses, model_selection, and model_discovery
+→ Returns each CLI's roles, strengths, weaknesses, model_selection, and model_discovery. Each discovered model may include a model-specific routing profile.
 ```
 
 **Assignment guide:**
@@ -49,11 +49,16 @@ Use `list_subagent_types` first and pass the repository `cwd`, because OpenCode 
 
 - `model_selection` explains how Agent Squad passes `model` and `reasoning_effort` to the CLI.
 - `model_discovery.models` contains choices advertised by the installed CLI. Use the exact `id`.
+- `model_discovery.models[].profile` describes that model's strengths, weaknesses, recommended and avoided task types, relative cost/latency tiers, and routing priority. Prefer this model-specific profile over the CLI-wide description.
+- `profile.effort_profiles[reasoning_effort]`, when present, refines the profile for a specific thinking level. Apply it when comparing model + effort combinations.
+- `profile.source` is `official_default`, `user_override`, or `merged`. User overrides express local routing knowledge and take precedence over official defaults.
 - `model_discovery.status: "available"` means the list was dynamically enumerated.
 - `"partial"` means the CLI only exposes documented aliases, so unlisted full model names may still work.
 - `"unsupported"`, `"unavailable"`, or `"failed"` means discovery cannot provide a list. Do not assume the CLI itself is unusable when discovery alone failed; omit the selectors or use a user-provided custom value.
 
-Discovery is advisory rather than a whitelist. The native CLI remains the authority when a selected model is invoked.
+Discovery and capability profiles are advisory rather than a whitelist or pricing guarantee. The native CLI remains the authority when a selected model is invoked. If a discovered model has no profile, fall back to the CLI-wide strengths and weaknesses.
+
+Choose the least expensive and fastest model whose profile covers the task. Reserve stronger, slower models and maximum effort for ambiguity, high-risk review, architecture, or failed attempts. Do not select solely by model name or maximum reasoning effort.
 
 Typical mappings:
 

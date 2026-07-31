@@ -9,6 +9,7 @@ import type {
   DetectResult,
   ModelDiscoveryInput,
   ModelDiscoveryResult,
+  ModelProfileCatalog,
   ModelSelectionInfo,
   SendInput,
   SendResult,
@@ -23,12 +24,14 @@ import { runJsonlProcess } from '../shared/jsonl-runner.js';
 import { KeyedModelDiscoveryCache } from '../shared/model-discovery.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
+import { OFFICIAL_MODEL_PROFILES } from '../model-profiles.js';
 
 export interface CodexAdapterOpts {
   env?: NodeJS.ProcessEnv;
   binary?: string;
   usePty?: boolean;  // default true for real codex; false for tests/stubs
   modelDiscoveryTimeoutMs?: number;
+  modelProfileOverrides?: ModelProfileCatalog;
 }
 
 export class CodexAdapter implements CliAdapter {
@@ -41,6 +44,8 @@ export class CodexAdapter implements CliAdapter {
   readonly roles = ['reviewer', 'bug_finder', 'fixer', 'implementer'];
   readonly strengths = 'High-quality code review, bug detection, and precise fixes. Strong at reasoning about diffs and edge cases.';
   readonly weaknesses = 'Not ideal for UI/design tasks. Can be slow for large-scale implementation.';
+  readonly modelProfiles = OFFICIAL_MODEL_PROFILES.codex;
+  readonly modelProfileOverrides: ModelProfileCatalog;
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
@@ -55,6 +60,7 @@ export class CodexAdapter implements CliAdapter {
 
   constructor(opts: CodexAdapterOpts = {}) {
     this.opts = opts;
+    this.modelProfileOverrides = opts.modelProfileOverrides ?? {};
     this.discoveryCache = new KeyedModelDiscoveryCache(
       'codex app-server model/list',
       (cwd) => discoverCodexModels({

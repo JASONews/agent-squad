@@ -8,6 +8,7 @@ import type {
   DiscoveredModel,
   ModelDiscoveryInput,
   ModelDiscoveryResult,
+  ModelProfileCatalog,
   ModelSelectionInfo,
   SendInput,
   SendResult,
@@ -32,6 +33,7 @@ import {
 } from '../shared/model-discovery.js';
 import { injectAgentSquadEnv, injectInstruction } from '../shared/subagent-context.js';
 import { resolveProfile, selectPermissionResponse } from './profiles.js';
+import { OFFICIAL_MODEL_PROFILES } from '../model-profiles.js';
 
 const RAW_TAIL_LINES = 20;
 const CANCEL_GRACE_MS = 250;
@@ -45,6 +47,7 @@ export interface KimiAdapterOpts {
   binary?: string;
   detectTimeoutMs?: number;
   modelDiscoveryTimeoutMs?: number;
+  modelProfileOverrides?: ModelProfileCatalog;
 }
 
 interface ProtocolResult {
@@ -60,6 +63,8 @@ export class KimiAdapter implements CliAdapter {
   readonly roles = ['reviewer', 'bug_finder', 'fixer', 'implementer', 'tester'];
   readonly strengths = 'Kimi Code provides repository-aware coding, review, implementation, and testing through its native ACP server.';
   readonly weaknesses = 'Requires a logged-in Kimi Code installation with ACP support. Model and thinking choices depend on options advertised by the installed version.';
+  readonly modelProfiles = OFFICIAL_MODEL_PROFILES.kimi;
+  readonly modelProfileOverrides: ModelProfileCatalog;
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
@@ -73,6 +78,7 @@ export class KimiAdapter implements CliAdapter {
 
   constructor(opts: KimiAdapterOpts = {}) {
     this.opts = opts;
+    this.modelProfileOverrides = opts.modelProfileOverrides ?? {};
     this.discoveryCache = new KeyedModelDiscoveryCache(
       'kimi ACP session configOptions',
       (cwd) => this.loadModelOptions(cwd),

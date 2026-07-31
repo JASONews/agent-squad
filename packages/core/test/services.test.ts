@@ -1090,6 +1090,29 @@ describe('services', () => {
         model: { parameter: 'model', source: 'mock models', examples: ['mock-pro'] },
         reasoningEffort: { parameter: 'reasoning_effort', source: 'mock effort', values: ['low', 'high'] },
       },
+      modelProfiles: {
+        '*': {
+          summary: 'official fallback',
+          strengths: ['review'],
+          weaknesses: ['slow'],
+          recommendedFor: ['code_review'],
+          costTier: 'medium',
+          latencyTier: 'slow',
+          priority: 70,
+          effortProfiles: {
+            high: { summary: 'official high effort', priority: 80 },
+          },
+        },
+      },
+      modelProfileOverrides: {
+        'mock-pro': {
+          strengths: ['team review'],
+          priority: 95,
+          effortProfiles: {
+            high: { priority: 99 },
+          },
+        },
+      },
       discoverModels: async (input) => {
         observedDiscoveryCwds.push(input?.cwd);
         return {
@@ -1122,6 +1145,22 @@ describe('services', () => {
         is_default: true,
         reasoning_efforts: ['low', 'high'],
         default_reasoning_effort: 'high',
+        profile: {
+          source: 'merged',
+          summary: 'official fallback',
+          strengths: ['team review'],
+          weaknesses: ['slow'],
+          recommended_for: ['code_review'],
+          cost_tier: 'medium',
+          latency_tier: 'slow',
+          priority: 95,
+          effort_profiles: {
+            high: {
+              summary: 'official high effort',
+              priority: 99,
+            },
+          },
+        },
       }],
       default_model: 'mock-pro',
     });

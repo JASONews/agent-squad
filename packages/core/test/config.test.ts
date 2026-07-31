@@ -43,6 +43,11 @@ describe('loadConfig', () => {
       enabled: true,
       minimumRatio: 0.6,
     });
+    expect(cfg.subagents?.codex.modelProfiles).toEqual({});
+    expect(cfg.subagents?.opencode.modelProfiles).toEqual({});
+    expect(cfg.subagents?.antigravity.modelProfiles).toEqual({});
+    expect(cfg.subagents?.claude.modelProfiles).toEqual({});
+    expect(cfg.subagents?.kimi.modelProfiles).toEqual({});
   });
 
   it('loads the Claude English input policy', async () => {
@@ -77,6 +82,70 @@ describe('loadConfig', () => {
     ].join('\n'));
     try {
       await expect(loadConfig({ cwd: dir, home: '/nonexistent' })).rejects.toThrow(/invalid config/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('loads model capability overrides with effort-specific details', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    writeFileSync(join(dir, 'agent-squad.yml'), [
+      'subagents:',
+      '  codex:',
+      '    model_profiles:',
+      '      "gpt-5.6-luna":',
+      '        summary: Team default for routine work',
+      '        strengths: [basic implementation, bug fixes]',
+      '        weaknesses: [high-risk architecture]',
+      '        recommended_for: [implementation, testing]',
+      '        avoid_for: [security review]',
+      '        cost_tier: low',
+      '        latency_tier: fast',
+      '        priority: 97',
+      '        effort_profiles:',
+      '          max:',
+      '            summary: Use when routine work needs extra care',
+      '            priority: 99',
+      '',
+    ].join('\n'));
+    try {
+      const cfg = await loadConfig({ cwd: dir, home: '/nonexistent' });
+      expect(cfg.subagents?.codex.modelProfiles).toEqual({
+        'gpt-5.6-luna': {
+          summary: 'Team default for routine work',
+          strengths: ['basic implementation', 'bug fixes'],
+          weaknesses: ['high-risk architecture'],
+          recommendedFor: ['implementation', 'testing'],
+          avoidFor: ['security review'],
+          costTier: 'low',
+          latencyTier: 'fast',
+          priority: 97,
+          effortProfiles: {
+            max: {
+              summary: 'Use when routine work needs extra care',
+              priority: 99,
+            },
+          },
+        },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects invalid model capability override values', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'as-'));
+    writeFileSync(join(dir, 'agent-squad.yml'), [
+      'subagents:',
+      '  kimi:',
+      '    model_profiles:',
+      '      "*":',
+      '        priority: 101',
+      '',
+    ].join('\n'));
+    try {
+      await expect(loadConfig({ cwd: dir, home: '/nonexistent' }))
+        .rejects.toThrow(/invalid config/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

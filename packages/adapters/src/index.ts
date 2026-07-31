@@ -4,6 +4,10 @@ export { OpencodeAdapter } from './opencode/adapter.js';
 export { AntigravityAdapter } from './antigravity/adapter.js';
 export { ClaudeAdapter } from './claude/adapter.js';
 export { KimiAdapter } from './kimi/adapter.js';
+export {
+  OFFICIAL_MODEL_PROFILE_CATALOG_VERSION,
+  OFFICIAL_MODEL_PROFILES,
+} from './model-profiles.js';
 export { runJsonlProcess, readLastMessageFile } from './shared/jsonl-runner.js';
 export type { LineParser, LineEvent } from './shared/line-parser.js';
 export { LineAccumulator, filterEnv } from './shared/index.js';

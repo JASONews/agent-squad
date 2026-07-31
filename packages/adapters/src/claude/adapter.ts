@@ -5,6 +5,7 @@ import type {
   DetectResult,
   DiscoveredModel,
   ModelDiscoveryResult,
+  ModelProfileCatalog,
   ModelSelectionInfo,
   SendInput,
   SendResult,
@@ -22,12 +23,14 @@ import {
   DEFAULT_CLAUDE_ENGLISH_INPUT_POLICY,
   type ClaudeEnglishInputPolicy,
 } from './language.js';
+import { OFFICIAL_MODEL_PROFILES } from '../model-profiles.js';
 
 export interface ClaudeAdapterOpts {
   env?: NodeJS.ProcessEnv;
   binary?: string;
   modelDiscoveryTimeoutMs?: number;
   englishInputPolicy?: Partial<ClaudeEnglishInputPolicy>;
+  modelProfileOverrides?: ModelProfileCatalog;
 }
 
 export class ClaudeAdapter implements CliAdapter {
@@ -41,6 +44,8 @@ export class ClaudeAdapter implements CliAdapter {
   readonly roles = ['reviewer', 'bug_finder', 'fixer', 'implementer', 'tester'];
   readonly strengths = 'Strong general coding agent with good repository navigation, implementation, testing, and review. An English-first input policy is enabled by default.';
   readonly weaknesses = 'Assignments and follow-ups that do not meet the configured English-input ratio are rejected before delivery. UI/product design is usually better assigned to antigravity.';
+  readonly modelProfiles = OFFICIAL_MODEL_PROFILES.claude;
+  readonly modelProfileOverrides: ModelProfileCatalog;
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
@@ -56,6 +61,7 @@ export class ClaudeAdapter implements CliAdapter {
 
   constructor(opts: ClaudeAdapterOpts = {}) {
     this.opts = opts;
+    this.modelProfileOverrides = opts.modelProfileOverrides ?? {};
     this.englishInputPolicy = {
       ...DEFAULT_CLAUDE_ENGLISH_INPUT_POLICY,
       ...opts.englishInputPolicy,

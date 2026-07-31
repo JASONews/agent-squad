@@ -133,7 +133,7 @@ bash skills/install.sh all
 | Tool | Purpose |
 |---|---|
 | `start_session` | Create a collaboration session |
-| `list_subagent_types` | List available subagent types and capabilities |
+| `list_subagent_types` | List available subagent types, discovered models, and model-specific capability profiles |
 | `spawn_subagent` | Start a subagent (`codex`, `opencode`, `antigravity`, `claude`, or `kimi`) |
 | `send_to_subagent` | Send a message to a subagent |
 | `wait_subagent` | Wait for a running subagent result without sending a new message |
@@ -235,7 +235,28 @@ server:
   db_path: ~/.agent-squad/agent-squad.db
 context_policy:
   default: message_only
+subagents:
+  claude:
+    english_input:
+      enabled: true
+      minimum_ratio: 0.6
+  codex:
+    model_profiles:
+      "gpt-5.6-luna":
+        strengths: [routine implementation, bug fixes]
+        weaknesses: [high-risk architecture]
+        recommended_for: [implementation, testing]
+        avoid_for: [security review]
+        cost_tier: low
+        latency_tier: fast
+        priority: 95
+        effort_profiles:
+          max:
+            summary: Preferred when routine work needs extra care
+            priority: 98
 ```
+
+Agent Squad ships versioned official profiles for models exposed by Codex, OpenCode, Antigravity, Claude Code, and Kimi Code. `list_subagent_types` merges those profiles into each discovered model so the main agent can compare strengths, weaknesses, task fit, relative cost/latency, and reasoning-effort guidance. User `model_profiles` are partial overrides and accept exact model IDs or `*` glob patterns. These fields are routing hints, not pricing guarantees.
 
 ## Development
 

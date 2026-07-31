@@ -4,6 +4,7 @@ export * from './errors.js';
 export * from './types.js';
 export * from './context-telemetry.js';
 export * from './run-progress.js';
+export * from './model-profiles.js';
 export * from './config/loader.js';
 export type { ResolvedConfig } from './config/schema.js';
 export { Db, openDb } from './db/client.js';
