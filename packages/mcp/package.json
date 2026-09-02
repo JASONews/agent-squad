@@ -1,0 +1,21 @@
+{
+  "name": "@agent-squad/mcp",
+  "version": "1.0.5",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "agent-squad-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agent-squad/core": "*",
+    "@modelcontextprotocol/server": "^2.0.0-beta.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@agent-squad/daemon": "*"
+  }
+}

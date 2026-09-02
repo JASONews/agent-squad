@@ -1,0 +1,26 @@
+server:
+  host: 127.0.0.1
+  port: 28771
+  db_path: ~/.agent-squad/agent-squad.db
+context_policy:
+  default: message_only
+
+# Agent Squad ships versioned official model capability profiles. Override only
+# the fields that differ for your local accounts and workload. Exact model ids
+# and `*` glob patterns are supported.
+#
+# subagents:
+#   codex:
+#     model_profiles:
+#       "gpt-5.6-luna":
+#         strengths: [routine implementation, bug fixes]
+#         weaknesses: [high-risk architecture]
+#         recommended_for: [implementation, testing]
+#         avoid_for: [security review]
+#         cost_tier: low
+#         latency_tier: fast
+#         priority: 95
+#         effort_profiles:
+#           max:
+#             summary: Preferred when routine work needs extra care
+#             priority: 98

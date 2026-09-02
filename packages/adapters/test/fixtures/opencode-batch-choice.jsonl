@@ -1,0 +1,3 @@
+{"type":"step_start","sessionID":"ses-batch","part":{"type":"step-start"}}
+{"type":"message","sessionID":"ses-batch","message":{"role":"assistant","content":[{"type":"text","text":"Need a decision.\n\n%%AGENT_SQUAD_CHOICE%%\n{\"question\":\"Pick layout?\",\"options\":[{\"id\":\"modal\",\"label\":\"Modal\"},{\"id\":\"page\",\"label\":\"Page\"}]}\n%%END_AGENT_SQUAD_CHOICE%%"}]}}
+{"type":"step_finish","sessionID":"ses-batch","part":{"type":"step-finish","reason":"stop"}}

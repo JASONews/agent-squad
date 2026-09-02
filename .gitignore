@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+.agent-squad/
+.env
+.env.*
+!.env.example
+.npmrc
+*.db
+*.db-shm
+*.db-wal
+.superpowers/
+
+# tsc incremental build artifacts
+*.tsbuildinfo
