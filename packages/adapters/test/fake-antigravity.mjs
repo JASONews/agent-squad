@@ -24,15 +24,34 @@ if (args[0] === '--version') {
   process.exit(0);
 }
 
+if (args[0] === '--help') {
+  process.stderr.write(mode.startsWith('stream') ? '--output-format text, json, stream-json\n' : '--print\n');
+  process.exit(0);
+}
+
 if (args[0] === 'models') {
+  process.stderr.write('Fetching available models...\n');
+  process.stdout.write('Available models:\n');
   process.stdout.write('gemini-3.6-flash-high\n');
   process.stdout.write('claude-opus-4-6-thinking\n');
+  process.stdout.write('gemini-4-neon-xhigh\tGemini 4 Neon (XHigh)\n'.repeat(2));
+  process.stdout.write('Claude Sonnet 4.6 (Thinking)\n');
   process.exit(0);
 }
 
 // Detect whether --conversation <id> was passed (resume).
 const resumeIdx = args.indexOf('--conversation');
 const isResume = resumeIdx !== -1 && resumeIdx + 1 < args.length;
+
+if (args.includes('stream-json')) {
+  const id = isResume ? args[resumeIdx + 1] : uuid;
+  console.log(JSON.stringify({ event: 'init', conversation_id: id }));
+  console.log(JSON.stringify({ event: 'step_update', step_update: { text_delta: 'not a final reply' } }));
+  if (mode !== 'stream-truncated') console.log(JSON.stringify({
+    event: 'result', result: { status: 'SUCCESS', conversation_id: id, response: 'OK' },
+  }));
+  process.exit(0);
+}
 
 function writeConversationMap() {
   if (!home) return;  // no home → don't write (some tests don't need it)

@@ -17,6 +17,8 @@ export interface DiscoveryCommandOptions {
   env: NodeJS.ProcessEnv;
   cwd?: string;
   timeoutMs?: number;
+  input?: string;
+  includeStderr?: boolean;
 }
 
 export class ModelDiscoveryCommandError extends Error {
@@ -92,9 +94,9 @@ export function runDiscoveryCommand(options: DiscoveryCommandOptions): Promise<s
     const child = spawn(options.binary, options.args, {
       cwd: options.cwd,
       env: options.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: 'pipe',
     });
-    let stdout = '';
+    const stdout: Buffer[] = [];
     let outputBytes = 0;
     let settled = false;
 
@@ -103,7 +105,7 @@ export function runDiscoveryCommand(options: DiscoveryCommandOptions): Promise<s
       settled = true;
       clearTimeout(timer);
       if (error) reject(error);
-      else resolve(stripAnsi(stdout));
+      else resolve(stripAnsi(Buffer.concat(stdout).toString('utf8')));
     };
 
     const append = (chunk: Buffer, include: boolean): void => {
@@ -113,7 +115,7 @@ export function runDiscoveryCommand(options: DiscoveryCommandOptions): Promise<s
         finish(new ModelDiscoveryCommandError('model_discovery_protocol_error'));
         return;
       }
-      if (include) stdout += chunk.toString();
+      if (include) stdout.push(chunk);
     };
 
     const timer = setTimeout(() => {
@@ -122,7 +124,7 @@ export function runDiscoveryCommand(options: DiscoveryCommandOptions): Promise<s
     }, timeoutMs);
 
     child.stdout.on('data', (chunk: Buffer) => append(chunk, true));
-    child.stderr.on('data', (chunk: Buffer) => append(chunk, false));
+    child.stderr.on('data', (chunk: Buffer) => append(chunk, options.includeStderr === true));
     child.once('error', () => {
       finish(new ModelDiscoveryCommandError('model_discovery_spawn_failed'));
     });
@@ -133,6 +135,8 @@ export function runDiscoveryCommand(options: DiscoveryCommandOptions): Promise<s
       }
       finish();
     });
+    child.stdin.on('error', () => { /* The child may exit before reading stdin. */ });
+    child.stdin.end(options.input);
   });
 }
 

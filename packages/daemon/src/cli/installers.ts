@@ -86,16 +86,28 @@ function installOpencode(home: string): InstallResult {
   return { cli: 'opencode', action: 'installed', configPath: path, message: 'agent-squad MCP configured for opencode. Run: agent-squad daemon start' };
 }
 
-// --- Antigravity (JSON settings.json) ---
+// --- Antigravity (global MCP configuration) ---
 
 function configPathAntigravity(home: string): string {
-  return join(home, '.gemini', 'antigravity-cli', 'settings.json');
+  return join(home, '.gemini', 'config', 'mcp_config.json');
 }
 
 function installAntigravity(home: string): InstallResult {
   const path = configPathAntigravity(home);
   let config: Record<string, unknown> = {};
-  try { config = JSON.parse(readFileSync(path, 'utf8')); } catch { /* missing → fresh */ }
+  try {
+    if (existsSync(path)) {
+      const content = readFileSync(path, 'utf8').trim();
+      if (content) config = JSON.parse(content);
+      if (!config || typeof config !== 'object' || Array.isArray(config)
+        || (config.mcpServers !== undefined && (!config.mcpServers
+          || typeof config.mcpServers !== 'object' || Array.isArray(config.mcpServers)))) {
+        throw new Error('invalid MCP config');
+      }
+    }
+  } catch {
+    return { cli: 'antigravity', action: 'failed', configPath: path, message: 'Could not read the Antigravity MCP configuration; file left unchanged.' };
+  }
 
   const mcpServers = (config.mcpServers as Record<string, unknown> | undefined) ?? {};
   if (mcpServers[MCP_SERVER_NAME]) {

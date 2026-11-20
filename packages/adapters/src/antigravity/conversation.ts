@@ -28,6 +28,7 @@ export function getConversationId(homeDir: string, cwd: string): string | null {
   } catch {
     realCwd = cwd;  // cwd may not exist yet; fall back to the literal
   }
-  const uuid = (map as Record<string, unknown>)[realCwd];
+  const entries = map as Record<string, unknown>;
+  const uuid = entries[cwd] ?? entries[realCwd];
   return typeof uuid === 'string' ? uuid : null;
 }

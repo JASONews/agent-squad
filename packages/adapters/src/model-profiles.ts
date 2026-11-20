@@ -126,12 +126,27 @@ const flashProfile: ModelCapabilityProfile = {
   priority: 85,
 };
 
-export const OFFICIAL_MODEL_PROFILE_CATALOG_VERSION = 1;
+export const OFFICIAL_MODEL_PROFILE_CATALOG_VERSION = 2;
 
 export const OFFICIAL_MODEL_PROFILES: Record<CliType, ModelProfileCatalog> = {
   codex: {
     'gpt-5.6-luna': lunaProfile,
     'gpt-5.6-sol': solProfile,
+    'gpt-6*-luna': lunaProfile,
+    'gpt-6*-sol': {
+      ...solProfile, summary: 'General-purpose coding and review across files.',
+      costTier: 'medium', latencyTier: 'medium',
+    },
+    'gpt-*-astra': {
+      ...solProfile, summary: 'Sustained reasoning for demanding end-to-end work across systems.',
+      recommendedFor: ['cross_module_change', 'complex_debugging', 'deep_review'],
+    },
+    'gpt-*-terra': {
+      summary: 'Fast visual analysis, technical writing, and focused app tasks.',
+      strengths: ['Interpreting screenshots and charts', 'Clear technical writing'],
+      weaknesses: ['Prefer a stronger reasoning model for ambiguous cross-system changes'],
+      recommendedFor: ['visual_review', 'documentation'], latencyTier: 'fast', priority: 75,
+    },
   },
   opencode: {
     '*gpt-5.6-luna*': lunaProfile,
@@ -141,6 +156,17 @@ export const OFFICIAL_MODEL_PROFILES: Record<CliType, ModelProfileCatalog> = {
     '*gemini*flash*': flashProfile,
   },
   antigravity: {
+    'gemini-4-neon*': {
+      ...sonnetProfile, summary: 'Balanced reasoning for complex coding and analysis.',
+    },
+    'gemini-4-argon*': {
+      ...opusProfile, summary: 'Reasoning and planning for multi-step engineering tasks.',
+    },
+    'gemini-4-hydrogen*': flashProfile,
+    'gemini-pro-orchestrator-*': {
+      summary: 'Multi-model planning and implementation.', recommendedFor: ['multi_step_implementation'],
+      weaknesses: ['Not suitable when execution must stay on one model'], priority: 75,
+    },
     'gemini-*-flash-*': flashProfile,
     'gemini-*-pro-*': {
       summary: 'Higher-reasoning Gemini option for complex product and UI work.',
@@ -152,8 +178,8 @@ export const OFFICIAL_MODEL_PROFILES: Record<CliType, ModelProfileCatalog> = {
       latencyTier: 'medium',
       priority: 82,
     },
-    'claude-*opus*-thinking': opusProfile,
-    'claude-*sonnet*-thinking': sonnetProfile,
+    'claude-*opus*': opusProfile,
+    'claude-*sonnet*': sonnetProfile,
     'gpt-oss-*-medium': {
       summary: 'General-purpose open model option for routine coding and analysis.',
       strengths: ['General coding', 'Summarization', 'Independent second opinions'],
@@ -167,11 +193,14 @@ export const OFFICIAL_MODEL_PROFILES: Record<CliType, ModelProfileCatalog> = {
   },
   claude: {
     default: {
-      ...opusProfile,
-      summary: 'Claude Code default alias, currently treated as the preferred Opus-class route.',
+      summary: 'Use the model selected by the local Claude Code plan and configuration.',
+      recommendedFor: ['general_implementation'],
       priority: 88,
     },
     '*opus*': opusProfile,
+    '*fable*': {
+      ...opusProfile, summary: 'Claude option for the hardest and longest-running tasks.',
+    },
     '*sonnet*': sonnetProfile,
     '*haiku*': {
       ...flashProfile,

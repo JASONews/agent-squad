@@ -143,6 +143,8 @@ bash skills/install.sh all
 
 ## Example
 
+Choose models from `list_subagent_types`. Codex and Claude Code return the local account's model IDs and per-model reasoning levels. For Antigravity, use the exact variant ID from `agy models` and omit a separate effort. Older Claude Code clients fall back to a partial alias list.
+
 ```text
 User: Implement an Ollama embedding settings feature.
 

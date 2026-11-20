@@ -39,12 +39,12 @@ describe('AntigravityAdapter.detect', () => {
 });
 
 describe('AntigravityAdapter model selection metadata', () => {
-  it('declares model-based thinking selection', () => {
+  it('documents exact variant IDs and explicit effort', () => {
     const a = new AntigravityAdapter({ usePty: false, env: process.env });
     expect(a.modelSelection?.model?.parameter).toBe('model');
     expect(a.modelSelection?.model?.source).toContain('agy models');
-    expect(a.modelSelection?.reasoningEffort?.parameter).toBe('model');
-    expect(a.modelSelection?.reasoningEffort?.source).toContain('model name');
+    expect(a.modelSelection?.reasoningEffort?.parameter).toBe('reasoning_effort');
+    expect(a.modelSelection?.reasoningEffort?.source).toContain('--effort');
   });
 });
 
@@ -59,6 +59,8 @@ describe('AntigravityAdapter.discoverModels', () => {
       models: [
         { id: 'gemini-3.6-flash-high' },
         { id: 'claude-opus-4-6-thinking' },
+        { id: 'gemini-4-neon-xhigh', label: 'Gemini 4 Neon (XHigh)' },
+        { id: 'Claude Sonnet 4.6 (Thinking)' },
       ],
     });
   });
@@ -79,6 +81,21 @@ describe('AntigravityAdapter.spawnSubagent', () => {
 });
 
 describe('AntigravityAdapter.send via FakeAntigravity', () => {
+  it('uses native stream identity and the final reply without consulting the workspace cache', async () => {
+    const a = new AntigravityAdapter({ usePty: false, env: withBin(setupFakeBin(), { FAKE_AGY_MODE: 'stream' }) });
+    const ids: string[] = [];
+    const input = { subagentId: 'sub', cwd: tmp, message: 'test', wait: true, onSessionStarted: (id: string) => ids.push(id) };
+    expect(await a.send(input)).toMatchObject({ status: 'completed', reply: 'OK', nativeSessionId: 'fake-agy-uuid' });
+    expect(await a.send({ ...input, nativeSessionId: 'resumed-id' })).toMatchObject({ status: 'completed', nativeSessionId: 'resumed-id' });
+    expect(ids).toEqual(['fake-agy-uuid', 'resumed-id']);
+  });
+
+  it('does not report completion on a truncated native stream', async () => {
+    const a = new AntigravityAdapter({ usePty: false, env: withBin(setupFakeBin(), { FAKE_AGY_MODE: 'stream-truncated' }) });
+    expect(await a.send({ subagentId: 'sub', cwd: tmp, message: 'test', wait: true })).toMatchObject({
+      status: 'failed', nativeSessionId: 'fake-agy-uuid',
+    });
+  });
   it('success first-send: full-stdout reply + nativeSessionId captured', async () => {
     const bin = setupFakeBin();
     const a = new AntigravityAdapter({ usePty: false, env: withBin(bin, { FAKE_AGY_HOME: home, FAKE_AGY_CWD: tmp, FAKE_AGY_UUID: 'agy-uuid-xyz' }), homeDir: home });

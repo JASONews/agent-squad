@@ -5,9 +5,12 @@ import { getConversationId } from './conversation.js';
 import { filterEnv } from '../shared/env.js';
 import {
   ModelDiscoveryCache,
-  parseModelLines,
+  ModelDiscoveryCommandError,
   runDiscoveryCommand,
 } from '../shared/model-discovery.js';
+import { agyModelArgs, parseAgyModels } from '../shared/native-models.js';
+import { AgyTurnParser } from './jsonl.js';
+import { runJsonlProcess } from '../shared/jsonl-runner.js';
 import { runPtyProcess } from '../shared/pty-runner.js';
 import { injectInstruction, injectAgentSquadEnv } from '../shared/subagent-context.js';
 import { OFFICIAL_MODEL_PROFILES } from '../model-profiles.js';
@@ -24,10 +27,7 @@ import type {
   SubagentHandle,
 } from '@agent-squad/core';
 
-// agy's `--print` mode does NOT stream — it emits the full reply in one burst after the model
-// finishes thinking. Real agy first-response latency is ~30-40s (verified on agy 1.0.14), so plain
-// idle must not be treated as blocked. Only marker-based permission waits use IDLE_TIMEOUT_MS;
-// long silent work is bounded by the service-provided hard timeout.
+// Older text-only versions can remain silent throughout inference.
 const IDLE_TIMEOUT_MS = 15_000;
 const BLOCK_AFTER_MS = 90_000;
 const BLOCK_MARKER_RE = /approval|pending|permission|approve/i;
@@ -47,38 +47,39 @@ export class AntigravityAdapter implements CliAdapter {
   private readonly opts: AntigravityAdapterOpts;
   private readonly discoveryCache: ModelDiscoveryCache;
   private detectCache: DetectResult | null = null;
+  private streamProbe?: { until: number; supported: Promise<boolean> };
   private idleTimeoutMs = IDLE_TIMEOUT_MS;
   private blockAfterMs = BLOCK_AFTER_MS;
   readonly roles = ['ui_implementer', 'ui_reviewer', 'product_designer', 'architect'];
   readonly strengths = 'UI/product design, visual layout, and front-end implementation. Strong at understanding design intent and producing polished interfaces.';
-  readonly weaknesses = 'Not suited for code review, bug finding, or backend logic. Higher latency (~40s per response). Plain-text output only (no structured JSON).';
+  readonly weaknesses = 'Latency and coding strengths vary by model. Older text-only CLIs may stay silent during a turn.';
   readonly modelProfiles = OFFICIAL_MODEL_PROFILES.antigravity;
   readonly modelProfileOverrides: ModelProfileCatalog;
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
-      source: 'agy --print --model <model>; run agy models for available full model names.',
-      examples: ['gemini-3.5-flash-high', 'claude-opus-4-6-thinking'],
+      source: 'agy --print --model <id>; choose an exact variant ID from agy models.',
+      examples: ['gemini-4-neon-xhigh', 'claude-opus-5-5-high'],
     },
     reasoningEffort: {
-      parameter: 'model',
-      source: 'Antigravity has no separate reasoning_effort flag; thinking level is encoded in the full model name from agy models.',
+      parameter: 'reasoning_effort',
+      source: 'For an exact variant ID, omit effort. On CLIs with --effort, a base model accepts a separate level.',
     },
   };
 
   constructor(opts: AntigravityAdapterOpts = {}) {
     this.opts = opts;
     this.modelProfileOverrides = opts.modelProfileOverrides ?? {};
-    this.discoveryCache = new ModelDiscoveryCache('agy models', async () => ({
-      status: 'available',
-      source: 'agy models',
-      models: parseModelLines(await runDiscoveryCommand({
+    this.discoveryCache = new ModelDiscoveryCache('agy models', async () => {
+      const models = parseAgyModels(await runDiscoveryCommand({
         binary: this.opts.binary ?? 'agy',
         args: ['models'],
         env: this.opts.env ?? process.env,
         timeoutMs: this.opts.modelDiscoveryTimeoutMs,
-      })),
-    }));
+      }));
+      if (!models.length) throw new ModelDiscoveryCommandError('model_discovery_protocol_error');
+      return { status: 'available', source: 'agy models', models };
+    });
   }
 
   setBlockTimingsForTest(idle: number, block: number): void {
@@ -109,6 +110,17 @@ export class AntigravityAdapter implements CliAdapter {
     return this.discoveryCache.get();
   }
 
+  private supportsStreamJson(): Promise<boolean> {
+    if (!this.streamProbe || this.streamProbe.until <= Date.now()) {
+      const supported = runDiscoveryCommand({
+        binary: this.opts.binary ?? 'agy', args: ['--help'], env: this.opts.env ?? process.env,
+        includeStderr: true, timeoutMs: this.opts.modelDiscoveryTimeoutMs,
+      }).then((help) => /--output-format[^\n]*\bstream-json\b/.test(help), () => false);
+      this.streamProbe = { until: Date.now() + 300_000, supported };
+    }
+    return this.streamProbe.supported;
+  }
+
   async spawnSubagent(input: SpawnInput): Promise<SubagentHandle> {
     resolveProfile(input.permissionProfile);  // validate (throws permission_profile_unknown)
     return { subagentId: input.subagentId, nativeSessionId: undefined, status: 'ready' };
@@ -121,12 +133,26 @@ export class AntigravityAdapter implements CliAdapter {
     const cwd = input.cwd ?? '.';
     const isFirstTurn = input.isFirstTurn ?? !isResume;
     const message = isFirstTurn ? injectInstruction(input.message) : input.message;
-    const modelArgs = input.model ? ['--model', input.model] : [];
+    const modelArgs = agyModelArgs(input.model, input.reasoningEffort);
+    const stream = await this.supportsStreamJson();
+    if (stream) modelArgs.push('--output-format', 'stream-json');
     const args = isResume
       ? [...profileFlags(profile), ...modelArgs, '--conversation', input.nativeSessionId as string, '--print', message]
       : [...profileFlags(profile), ...modelArgs, '--print', message];
     const env = injectAgentSquadEnv(filterEnv(this.opts.env ?? process.env), input);
     const home = this.opts.homeDir ?? env.HOME ?? homedir();
+
+    if (stream) {
+      const parser = new AgyTurnParser(input.nativeSessionId);
+      const run = this.opts.usePty === false ? runJsonlProcess : runPtyProcess;
+      const result = await run({
+        binary: bin, args, env, cwd, parser, hardTimeoutMs: input.hardTimeoutMs,
+        idleTimeoutMs: this.idleTimeoutMs, blockAfterMs: this.blockAfterMs,
+        onOutput: input.onOutput, onSessionStarted: input.onSessionStarted,
+      });
+      if (result.status === 'completed' && !parser.completed) return { ...result, status: 'failed' };
+      return result;
+    }
 
     if (this.opts.usePty === false) {
       // Non-PTY mode (for tests/stubs) — use the old runAgy

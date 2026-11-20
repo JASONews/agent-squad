@@ -25,6 +25,22 @@ if (args[0] === '--help') {
   process.exit(0);
 }
 
+if (args.includes('--safe-mode') && mode === 'catalog') {
+  let input = '';
+  for await (const chunk of process.stdin) input += chunk;
+  const request = JSON.parse(input);
+  if (request.type !== 'control_request' || request.request.subtype !== 'initialize') process.exit(2);
+  console.log(JSON.stringify({ type: 'system', subtype: 'init' }));
+  console.log(JSON.stringify({ type: 'control_response', response: {
+    request_id: request.request_id, subtype: 'success', response: { models: [
+      { value: 'default', displayName: 'Default', supportedEffortLevels: ['high', 'max'] },
+      { value: 'fable', displayName: 'Fable', supportedEffortLevels: ['xhigh'] },
+      { value: 'custom', supportsEffort: false, supportedEffortLevels: ['high'] },
+    ] },
+  } }));
+  process.exit(0);
+}
+
 if (mode === 'fail') {
   process.stderr.write('fake-claude: simulated fatal error\n');
   process.exit(2);

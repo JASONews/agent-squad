@@ -17,6 +17,7 @@ import { firstSendArgs, resolveProfile, resumeArgs } from './profiles.js';
 import { filterEnv } from '../shared/env.js';
 import { runJsonlProcess } from '../shared/jsonl-runner.js';
 import { ModelDiscoveryCache, runDiscoveryCommand } from '../shared/model-discovery.js';
+import { CLAUDE_CATALOG_ARGS, CLAUDE_CATALOG_INPUT, parseClaudeModels } from '../shared/native-models.js';
 import { injectAgentSquadEnv, injectClaudeContinuation, injectClaudeInstruction } from '../shared/subagent-context.js';
 import {
   assertClaudeInputPrimarilyEnglish,
@@ -49,12 +50,12 @@ export class ClaudeAdapter implements CliAdapter {
   readonly modelSelection: ModelSelectionInfo = {
     model: {
       parameter: 'model',
-      source: 'claude --model <model>; defaults to default when omitted, letting Claude Code resolve its current Opus default. Accepts aliases such as default/sonnet/opus or full Claude Code model names.',
-      examples: ['default', 'opus', 'sonnet'],
+      source: 'claude --model <model>; the default alias resolves according to local Claude Code settings and account access.',
+      examples: ['default', 'opus', 'sonnet', 'fable'],
     },
     reasoningEffort: {
       parameter: 'reasoning_effort',
-      source: 'claude --effort <level>; defaults to max when omitted.',
+      source: 'claude --effort <level>; the default model uses max when effort is omitted; explicit models use their native default.',
       values: ['low', 'medium', 'high', 'xhigh', 'max'],
     },
   };
@@ -72,13 +73,29 @@ export class ClaudeAdapter implements CliAdapter {
       throw new RangeError('Claude English input minimumRatio must be between 0 and 1');
     }
     this.discoveryCache = new ModelDiscoveryCache(
-      'claude --help aliases (partial)',
-      async () => parseClaudeHelp(await runDiscoveryCommand({
-        binary: this.opts.binary ?? 'claude',
-        args: ['--help'],
-        env: this.opts.env ?? process.env,
-        timeoutMs: this.opts.modelDiscoveryTimeoutMs,
-      })),
+      'claude stream-json initialize',
+      async () => {
+        const command = {
+          binary: this.opts.binary ?? 'claude',
+          env: this.opts.env ?? process.env,
+          timeoutMs: this.opts.modelDiscoveryTimeoutMs ?? 15_000,
+        };
+        try {
+          const catalog = parseClaudeModels(await runDiscoveryCommand({
+            ...command, args: CLAUDE_CATALOG_ARGS, input: CLAUDE_CATALOG_INPUT,
+          }));
+          if (catalog) return {
+            status: 'available',
+            source: 'claude stream-json initialize',
+            models: catalog.map(({ id, label, efforts }) => ({
+              id, label, ...(efforts ? { reasoningEfforts: efforts } : {}),
+              ...(id === 'default' ? { isDefault: true } : {}),
+            })),
+            ...(catalog.some((m) => m.id === 'default') ? { defaultModel: 'default' } : {}),
+          };
+        } catch { /* Older clients may only expose aliases through help. */ }
+        return parseClaudeHelp(await runDiscoveryCommand({ ...command, args: ['--help'] }));
+      },
     );
   }
 

@@ -19,9 +19,15 @@ describe('official model capability profiles', () => {
   it('describes recommended models across dynamic CLI catalogs', () => {
     const cases: Array<[CliAdapter, string]> = [
       [new CodexAdapter(), 'gpt-5.6-luna'],
+      [new CodexAdapter(), 'gpt-6.2-sol'],
+      [new CodexAdapter(), 'gpt-6.2-astra'],
+      [new CodexAdapter(), 'gpt-6.1-terra'],
       [new OpencodeAdapter(), 'openai/gpt-5.6-luna'],
       [new AntigravityAdapter(), 'gemini-3.6-flash-high'],
+      [new AntigravityAdapter(), 'gemini-4-neon-xhigh'],
+      [new AntigravityAdapter(), 'claude-sonnet-5-5-high'],
       [new ClaudeAdapter(), 'default'],
+      [new ClaudeAdapter(), 'fable'],
       [new KimiAdapter(), 'kimi-k2.5'],
     ];
 

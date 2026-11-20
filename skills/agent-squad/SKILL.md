@@ -64,10 +64,10 @@ Typical mappings:
 
 | CLI | `model` | `reasoning_effort` / thinking |
 |---|---|---|
-| `codex` | Passed as `--model` | Passed as `model_reasoning_effort` |
+| `codex` | Use a visible ID from the local app-server catalog | Passed as `model_reasoning_effort`; use only levels listed for that model (including `ultra` where advertised) |
 | `opencode` | Passed as `--model` | Passed as `--variant` |
-| `antigravity` | Passed as `--model` | No separate flag; choose an exact `agy models` id, e.g. `gemini-3.5-flash-high` |
-| `claude` | Passed as `--model`; default `default` (Claude Code resolves this to Opus by default) | Passed as `--effort`; default `max` |
+| `antigravity` | Pass the ID from `agy models`, not the display label | An exact variant such as `gemini-4-neon-xhigh` already selects its effort. Omit `reasoning_effort` for a variant. Newer CLIs also accept a base model plus `--effort`. |
+| `claude` | Use an alias from the local stream-json catalog. `default` follows the account and configuration. | Use that model's advertised levels. Agent Squad uses `max` for `default`; an explicit model without an effort uses its native default. |
 | `kimi` | Applied through the Kimi Code ACP model config option; omit it to use Kimi's default | Kimi currently advertises `on`/`off`; familiar non-off levels such as `high` map to `on` |
 
 ### Workflow

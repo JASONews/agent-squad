@@ -75,7 +75,7 @@ export function buildServer(): McpServer {
   server.registerTool(
     'list_subagent_types',
     {
-      description: 'List subagent CLI capabilities, dynamically discovered model/reasoning choices, and model-specific capability profiles used for routing',
+      description: 'List subagent CLI capabilities and model routing profiles. Use model_discovery.models[].id (not label) and the reasoning efforts advertised for that model. Antigravity variant IDs already select the effort.',
       inputSchema: schema(listSubagentTypesSchema),
     },
     async (args) => {

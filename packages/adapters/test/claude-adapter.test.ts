@@ -42,6 +42,16 @@ describe('ClaudeAdapter model selection metadata', () => {
 });
 
 describe('ClaudeAdapter.discoverModels', () => {
+  it('reads account models and per-model efforts without sending a user turn', async () => {
+    const a = new ClaudeAdapter({ binary: join(setupFakeClaudeBin(), 'claude'), env: { ...process.env, FAKE_CLAUDE_MODE: 'catalog' } });
+    expect(await a.discoverModels()).toMatchObject({
+      status: 'available', defaultModel: 'default', models: [
+        { id: 'default', isDefault: true, reasoningEfforts: ['high', 'max'] },
+        { id: 'fable', label: 'Fable', reasoningEfforts: ['xhigh'] },
+        { id: 'custom', reasoningEfforts: [] },
+      ],
+    });
+  });
   it('reports help aliases as a partial list with global effort choices', async () => {
     const bin = setupFakeClaudeBin();
     const a = new ClaudeAdapter({

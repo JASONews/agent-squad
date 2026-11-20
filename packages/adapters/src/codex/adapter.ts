@@ -50,7 +50,7 @@ export class CodexAdapter implements CliAdapter {
     model: {
       parameter: 'model',
       source: 'codex exec --model <model>; accepts model ids available to the local Codex account/config.',
-      examples: ['gpt-5'],
+      examples: ['gpt-6.2-sol', 'gpt-6.2-astra'],
     },
     reasoningEffort: {
       parameter: 'reasoning_effort',

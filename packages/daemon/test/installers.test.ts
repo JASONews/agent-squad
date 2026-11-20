@@ -73,8 +73,19 @@ describe('installCli — antigravity (JSON)', () => {
   it('installs into a fresh config', async () => {
     const r = await installCli('antigravity', { homeDir: home });
     expect(r.action).toBe('installed');
-    const content = JSON.parse(readFileSync(join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8'));
+    const content = JSON.parse(readFileSync(join(home, '.gemini', 'config', 'mcp_config.json'), 'utf8'));
     expect(content.mcpServers['agent-squad']).toEqual({ command: 'agent-squad-mcp' });
+  });
+  it('preserves existing global servers and refuses to replace malformed data', async () => {
+    const path = configPathForCli('antigravity', { homeDir: home });
+    mkdirp(join(home, '.gemini', 'config'));
+    writeFileSync(path, '{');
+    expect((await installCli('antigravity', { homeDir: home })).action).toBe('failed');
+    expect(readFileSync(path, 'utf8')).toBe('{');
+    writeFileSync(path, JSON.stringify({ mcpServers: { other: { command: 'other' } } }));
+    await installCli('antigravity', { homeDir: home });
+    expect(JSON.parse(readFileSync(path, 'utf8')).mcpServers.other.command).toBe('other');
+    expect(isMcpConfigured('antigravity', { homeDir: home })).toBe(true);
   });
   it('is idempotent', async () => {
     await installCli('antigravity', { homeDir: home });
@@ -149,7 +160,7 @@ describe('configPathForCli', () => {
   it('returns the right path per CLI', () => {
     expect(configPathForCli('codex', { homeDir: home })).toBe(join(home, '.codex', 'config.toml'));
     expect(configPathForCli('opencode', { homeDir: home })).toBe(join(home, '.config', 'opencode', 'opencode.json'));
-    expect(configPathForCli('antigravity', { homeDir: home })).toBe(join(home, '.gemini', 'antigravity-cli', 'settings.json'));
+    expect(configPathForCli('antigravity', { homeDir: home })).toBe(join(home, '.gemini', 'config', 'mcp_config.json'));
     expect(configPathForCli('claude', { homeDir: home })).toBe(join(home, '.claude.json'));
     expect(configPathForCli('kimi', { homeDir: home, env: {} })).toBe(join(home, '.kimi-code', 'mcp.json'));
   });

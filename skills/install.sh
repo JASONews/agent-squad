@@ -8,7 +8,7 @@
 #   claude-code  — copies to ~/.claude/skills/
 #   codex        — copies to ~/.codex/skills/
 #   opencode     — copies to ~/.config/opencode/skills/
-#   antigravity  — copies to ~/.gemini/antigravity-cli/builtin/skills/
+#   antigravity  — copies to ~/.gemini/config/skills/
 #   kimi         — copies to ~/.kimi-code/skills/
 #   all          — installs to all five
 #
@@ -24,9 +24,8 @@ TARGET="${1:-all}"
 
 install_to_dir() {
   local dest="$1"
-  mkdir -p "$dest"
-  rm -rf "$dest/$SKILL_NAME"
-  cp -r "$SCRIPT_DIR/$SKILL_NAME" "$dest/$SKILL_NAME"
+  mkdir -p "$dest/$SKILL_NAME"
+  cp -R "$SCRIPT_DIR/$SKILL_NAME/." "$dest/$SKILL_NAME/"
   echo "  ✓ $SKILL_NAME → $dest"
 }
 
@@ -47,7 +46,7 @@ install_opencode() {
 
 install_antigravity() {
   echo "Installing to Antigravity..."
-  install_to_dir "$HOME/.gemini/antigravity-cli/builtin/skills"
+  install_to_dir "$HOME/.gemini/config/skills"
 }
 
 install_kimi() {

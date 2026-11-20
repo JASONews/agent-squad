@@ -30,9 +30,11 @@ export function resolveProfile(name?: string): ResolvedProfile {
 }
 
 function selectedModelArgs(options: ClaudeRunOptions): string[] {
+  const model = options.model ?? DEFAULT_MODEL;
+  const effort = options.reasoningEffort ?? (model === DEFAULT_MODEL ? DEFAULT_REASONING_EFFORT : undefined);
   return [
-    '--model', options.model ?? DEFAULT_MODEL,
-    '--effort', options.reasoningEffort ?? DEFAULT_REASONING_EFFORT,
+    '--model', model,
+    ...(effort ? ['--effort', effort] : []),
   ];
 }
 

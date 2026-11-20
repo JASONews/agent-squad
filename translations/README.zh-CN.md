@@ -142,6 +142,8 @@ bash skills/install.sh all
 
 ## 示例
 
+通过 `list_subagent_types` 选择模型。Codex 和 Claude Code 返回当前账号的模型 ID 和各模型支持的推理档位；Antigravity 使用 `agy models` 中的完整变体 ID，不必再传 effort。较旧的 Claude Code 会回退到不完整的别名列表。
+
 ```text
 用户：请实现一个 Ollama embedding 设置功能。
 
